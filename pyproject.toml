@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flowtrack"
+version = "0.1.0"
+description = "A local-first desktop task and project manager"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "PySide6==6.7.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+]
+
+[project.gui-scripts]
+flowtrack = "flowtrack.app:main"
+
+[tool.setuptools.packages.find]
+include = ["flowtrack*"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+pythonpath = ["."]
+testpaths = ["tests"]

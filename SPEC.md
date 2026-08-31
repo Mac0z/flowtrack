@@ -4,7 +4,7 @@
 **Status:** Source of Truth / implementation baseline\
 **Date:** 29 August 2026\
 **Platforms:** macOS and Windows\
-**Technology baseline:** Python 3.13, PySide6 / Qt 6, SQLite
+**Technology baseline:** Python 3.12, PySide6 / Qt 6, SQLite
 
 > This document defines what FlowTrack is, how it should behave, and the
 > architectural boundaries for implementation. Codex and human
