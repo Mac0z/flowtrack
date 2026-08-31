@@ -1,6 +1,6 @@
 """Keyboard-first global command/search shell."""
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QDialog, QLabel, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
@@ -8,6 +8,7 @@ from flowtrack.ui.widgets import CommandField
 
 
 class CommandPalette(QDialog):
+    command_triggered = Signal(str)
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Command Palette")
@@ -19,7 +20,7 @@ class CommandPalette(QDialog):
         self.command_field.setAccessibleName("Command search")
         layout.addWidget(self.command_field)
         self.commands = QListWidget()
-        for text in ("Go to Dashboard", "Go to My Tasks", "Go to Projects", "Open Settings"):
+        for text in ("Quick Task", "Go to Dashboard", "Go to My Tasks", "Go to Projects", "Open Settings"):
             self.commands.addItem(QListWidgetItem(text))
         self.commands.setCurrentRow(0)
         layout.addWidget(self.commands)
@@ -27,7 +28,8 @@ class CommandPalette(QDialog):
         hint.setObjectName("mutedText")
         layout.addWidget(hint)
         self.command_field.textChanged.connect(self._filter)
-        self.command_field.returnPressed.connect(self.accept)
+        self.command_field.returnPressed.connect(self._activate)
+        self.commands.itemActivated.connect(lambda _item: self._activate())
         self.command_field.installEventFilter(self)
 
     def open(self) -> None:
@@ -39,6 +41,12 @@ class CommandPalette(QDialog):
         for row in range(self.commands.count()):
             item = self.commands.item(row)
             item.setHidden(query.casefold() not in item.text().casefold())
+
+    def _activate(self) -> None:
+        item = self.commands.currentItem()
+        if item is not None and not item.isHidden():
+            self.command_triggered.emit(item.text())
+            self.accept()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         if watched is self.command_field and event.type() == QEvent.Type.KeyPress:

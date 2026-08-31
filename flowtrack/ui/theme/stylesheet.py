@@ -14,6 +14,7 @@ QLabel#eyebrow {{ font-size: {t.small}px; font-weight: {t.weight_semibold}; colo
 QLabel#pageTitle {{ font-size: {t.title}px; font-weight: {t.weight_semibold}; }}
 QLabel#secondaryText {{ color: {c.text_secondary}; }}
 QLabel#mutedText {{ color: {c.text_muted}; }}
+QLabel#dangerText {{ color: {c.danger}; }}
 QFrame#card {{ background: {c.surface_primary}; border: 1px solid {c.border_subtle}; border-radius: {r.lg}px; }}
 QPushButton {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.md}px; padding: {s.sm}px {s.md}px; }}
 QPushButton:hover {{ background: {c.surface_hover}; }}
@@ -28,4 +29,9 @@ QDialog {{ background: {c.surface_elevated}; }}
 QListWidget {{ background: transparent; border: 0; outline: 0; }}
 QListWidget::item {{ padding: 10px; border-radius: {r.sm}px; }}
 QListWidget::item:selected {{ background: {c.surface_selected}; }}
+QTableWidget {{ background: {c.surface_primary}; border: 1px solid {c.border_subtle}; gridline-color: {c.divider}; selection-background-color: {c.surface_selected}; }}
+QHeaderView::section {{ background: {c.surface_secondary}; color: {c.text_secondary}; border: 0; border-bottom: 1px solid {c.border_subtle}; padding: 7px; }}
+QComboBox, QDateEdit, QPlainTextEdit {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; padding: 6px; }}
+QProgressBar {{ border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; background: {c.surface_secondary}; text-align: center; }}
+QProgressBar::chunk {{ background: {c.accent}; border-radius: {r.sm}px; }}
 """
