@@ -7,27 +7,32 @@ from uuid import uuid4
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel
 
+from flowtrack.ui.theme.dark import DARK_THEME
+from flowtrack.ui.theme.stylesheet import build_stylesheet
 from flowtrack.ui.views.dashboard import DashboardView
 from flowtrack.ui.widgets import ProgressDisplay
 
 
 class _DashboardQueries:
-    def __init__(self, task_id) -> None:
-        self.task_id = task_id
+    def __init__(self, *task_ids) -> None:
+        self.task_ids = task_ids
 
     def dashboard(self):
-        task = SimpleNamespace(
-            id=self.task_id,
-            title="Prepare project update",
-            due_date=date(2026, 9, 2),
-            progress=45,
+        tasks = tuple(
+            SimpleNamespace(
+                id=task_id,
+                title=f"Prepare project update {index}",
+                due_date=date(2026, 9, 2),
+                progress=45,
+            )
+            for index, task_id in enumerate(self.task_ids, start=1)
         )
         return SimpleNamespace(
             active_projects=1,
             in_progress=1,
             completed=0,
             overdue=0,
-            due_this_week=(task,),
+            due_this_week=tasks,
             projects=(),
             pinned_projects=(),
         )
@@ -49,3 +54,38 @@ def test_dashboard_task_row_is_sized_for_complete_content(application):
     assert len(progress_displays) == 1
     assert item.sizeHint().height() >= dashboard.TASK_ROW_MINIMUM_HEIGHT
     assert item.sizeHint().height() >= row_widget.sizeHint().height()
+
+
+def test_dashboard_selected_task_row_keeps_item_highlight_visible(application):
+    first_task_id = uuid4()
+    second_task_id = uuid4()
+    dashboard = DashboardView(_DashboardQueries(first_task_id, second_task_id))
+
+    second_item = dashboard.task_list.item(1)
+    dashboard.task_list.setCurrentItem(second_item)
+    row_widget = dashboard.task_list.itemWidget(second_item)
+
+    assert dashboard.task_list.currentItem() is second_item
+    assert second_item.isSelected()
+    assert second_item.data(Qt.ItemDataRole.UserRole) == second_task_id
+    assert row_widget is not None
+    assert row_widget.objectName() == "dashboardTaskRow"
+    assert len(row_widget.findChildren(ProgressDisplay)) == 1
+
+    stylesheet = build_stylesheet(DARK_THEME)
+    assert (
+        "QWidget#dashboardTaskRow, QWidget#dashboardTaskRow QLabel "
+        "{ background: transparent; }"
+    ) in stylesheet
+    assert (
+        f"QListWidget::item:hover {{ background: {DARK_THEME.colors.surface_hover}; }}"
+        in stylesheet
+    )
+    assert (
+        f"QListWidget::item:selected {{ background: {DARK_THEME.colors.surface_selected}; }}"
+        in stylesheet
+    )
+    assert (
+        "QListWidget::item:selected:hover "
+        f"{{ background: {DARK_THEME.colors.surface_selected}; }}"
+    ) in stylesheet

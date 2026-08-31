@@ -22,7 +22,7 @@ class DashboardView(QWidget):
         self.task_list.clear()
         for row in data.due_this_week:
             item = QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole, row.id)
-            widget = QWidget(); widget.setMinimumHeight(self.TASK_ROW_MINIMUM_HEIGHT)
+            widget = QWidget(); widget.setObjectName("dashboardTaskRow"); widget.setMinimumHeight(self.TASK_ROW_MINIMUM_HEIGHT)
             widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             line = QHBoxLayout(widget); line.setContentsMargins(10, 4, 10, 4); line.setSpacing(12)
             task_label = QLabel(f"{row.title}   ·   {row.due_date:%a %d %b}")
