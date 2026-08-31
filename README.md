@@ -1,9 +1,10 @@
 # FlowTrack
 
 FlowTrack is a local-first, cross-platform desktop task and project manager. This
-repository currently contains the **M0 skeleton only**: a minimal Qt window,
-diagnostic logging, platform/path abstractions, tests, and CI. No database or
-task-management functionality has been implemented yet.
+repository contains the M0 application skeleton and the **M1 persistence
+foundation**: a versioned SQLite schema, SQLAlchemy 2.x mappings, transaction
+helpers, and session-scoped repositories. Task business rules and finished UI
+workflows belong to later milestones and are not implemented yet.
 
 ## Development setup
 
@@ -20,8 +21,27 @@ python -m flowtrack
 ```
 
 FlowTrack writes rotating diagnostic logs beneath the operating system's normal
-per-user application-data location. The application does not create a database
-in M0.
+per-user application-data location. Persistence clients initialize a chosen
+database path with `flowtrack.persistence.database.migrate_database`; selecting
+a portable dataset location remains a later application workflow.
+
+## Persistence development
+
+M1 uses SQLAlchemy 2.x and Alembic. Schema changes are represented by revisions
+in `flowtrack/persistence/migrations/`; never replace migration history with a
+direct `Base.metadata.create_all()` call. Repositories participate in a caller-
+owned transaction:
+
+```python
+engine = create_database_engine(database_path)
+factory = session_factory(engine)
+with transaction(factory) as session:
+    Repository(session, Project).add(Project(name="Example"))
+```
+
+SQLite foreign-key enforcement is enabled for every application engine. No WAL
+journal mode is selected by M1; cloud-folder durability and locking decisions
+remain explicitly deferred to M8.
 
 ## Compatibility assumptions
 
