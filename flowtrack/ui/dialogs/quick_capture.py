@@ -27,7 +27,7 @@ class QuickCaptureDialog(QDialog):
         self.project_combo.addItem("No project", None)
         self.owner_combo.addItem("Unassigned", None)
         for value in TaskPriority:
-            self.priority_combo.addItem(value.value.replace("_", " ").title(), value)
+            self.priority_combo.addItem(value.value.replace("_", " ").title(), value.value)
         self.priority_combo.setCurrentIndex(list(TaskPriority).index(TaskPriority.MEDIUM))
         self.start_edit = NullableDateEdit()
         self.due_edit = NullableDateEdit("No due date")
@@ -76,7 +76,7 @@ class QuickCaptureDialog(QDialog):
                 project_id=UUID(project_data) if project_data else None,
                 owner_id=UUID(owner_data) if owner_data else None,
                 start_date=self.start_edit.date_or_none(), due_date=self.due_edit.date_or_none(),
-                priority=self.priority_combo.currentData(),
+                priority=TaskPriority(self.priority_combo.currentData()),
             )
         except TaskValidationError as error:
             self.error_label.setText(str(error))
