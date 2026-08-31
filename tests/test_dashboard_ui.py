@@ -7,6 +7,8 @@ from uuid import uuid4
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel
 
+from flowtrack.ui.theme.dark import DARK_THEME
+from flowtrack.ui.theme.stylesheet import build_stylesheet
 from flowtrack.ui.views.dashboard import DashboardView
 from flowtrack.ui.widgets import ProgressDisplay
 
@@ -68,6 +70,22 @@ def test_dashboard_selected_task_row_keeps_item_highlight_visible(application):
     assert second_item.data(Qt.ItemDataRole.UserRole) == second_task_id
     assert row_widget is not None
     assert row_widget.objectName() == "dashboardTaskRow"
-    assert "QWidget#dashboardTaskRow" in application.styleSheet()
-    assert "QWidget#dashboardTaskRow QLabel { background: transparent; }" in application.styleSheet()
     assert len(row_widget.findChildren(ProgressDisplay)) == 1
+
+    stylesheet = build_stylesheet(DARK_THEME)
+    assert (
+        "QWidget#dashboardTaskRow, QWidget#dashboardTaskRow QLabel "
+        "{ background: transparent; }"
+    ) in stylesheet
+    assert (
+        f"QListWidget::item:hover {{ background: {DARK_THEME.colors.surface_hover}; }}"
+        in stylesheet
+    )
+    assert (
+        f"QListWidget::item:selected {{ background: {DARK_THEME.colors.surface_selected}; }}"
+        in stylesheet
+    )
+    assert (
+        "QListWidget::item:selected:hover "
+        f"{{ background: {DARK_THEME.colors.surface_selected}; }}"
+    ) in stylesheet
