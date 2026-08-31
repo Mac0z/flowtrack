@@ -9,7 +9,6 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QSettings
 from PySide6.QtGui import QKeySequence
 
-from flowtrack.app import create_application
 from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.ui.navigation import Destination, PRIMARY_NAVIGATION
 from flowtrack.ui.shortcuts import shell_shortcuts
@@ -17,13 +16,6 @@ from flowtrack.ui.theme import DARK_THEME, get_theme
 from flowtrack.ui.theme.tokens import ColorTokens
 from flowtrack.ui.widgets import CommandField, FlowButton, NavigationButton, SectionHeading, SurfaceCard
 from flowtrack.ui.windows.main_window import MainWindow
-
-
-@pytest.fixture(scope="module")
-def application():
-    app = create_application(["flowtrack-m3-test"])
-    yield app
-    app.quit()
 
 
 @pytest.fixture

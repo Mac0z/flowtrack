@@ -6,12 +6,10 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from flowtrack.app import create_application
 from flowtrack.ui.windows.main_window import MainWindow
 
 
-def test_application_shell_can_be_created() -> None:
-    application = create_application(["flowtrack-test"])
+def test_application_shell_can_be_created(application) -> None:
     window = MainWindow()
 
     assert application.applicationName() == "FlowTrack"
@@ -19,5 +17,3 @@ def test_application_shell_can_be_created() -> None:
     assert window.centralWidget() is not None
 
     window.close()
-    application.quit()
-
