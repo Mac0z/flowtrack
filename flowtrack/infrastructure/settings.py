@@ -1,4 +1,5 @@
 """Cross-platform persistence for UI-only application preferences."""
+import json
 
 from PySide6.QtCore import QByteArray, QSettings
 
@@ -38,4 +39,19 @@ class ApplicationSettings:
     def save_window(self, geometry: QByteArray, state: QByteArray) -> None:
         self._settings.setValue("window/geometry", geometry)
         self._settings.setValue("window/state", state)
+        self._settings.sync()
+
+    @property
+    def my_tasks_filters(self) -> dict[str, object]:
+        """Return JSON-safe My Tasks preferences (never business data)."""
+        raw = self._settings.value("my_tasks/filters", "{}", type=str)
+        try:
+            value = json.loads(raw)
+            return value if isinstance(value, dict) else {}
+        except (TypeError, json.JSONDecodeError):
+            return {}
+
+    @my_tasks_filters.setter
+    def my_tasks_filters(self, filters: dict[str, object]) -> None:
+        self._settings.setValue("my_tasks/filters", json.dumps(filters, sort_keys=True))
         self._settings.sync()

@@ -78,7 +78,7 @@ class Task(TimestampMixin, Base):
     project: Mapped[Project | None] = relationship(back_populates="tasks")
     owner: Mapped[Owner | None] = relationship(back_populates="tasks")
     parent: Mapped[Task | None] = relationship(back_populates="children", remote_side="Task.id")
-    children: Mapped[list[Task]] = relationship(back_populates="parent")
+    children: Mapped[list[Task]] = relationship(back_populates="parent", passive_deletes=True)
     tags: Mapped[list[Tag]] = relationship(secondary="task_tags", back_populates="tasks")
 
 

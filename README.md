@@ -56,3 +56,16 @@ remain explicitly deferred to M8.
   it is not a product release target.
 - Python 3.12 is the sole supported Python feature release, with PySide6 6.7.3
   pinned as the required Qt API baseline.
+
+## M4 task execution ordering
+
+M4 opens a migrated SQLite database named `flowtrack.db` in the platform's
+conventional application-data directory. Selectable data locations and
+associated data-safety workflows remain deliberately deferred to M8.
+
+My Tasks orders unfinished overdue work first, then work due within the next
+**seven calendar days** (inclusive), then Critical/High/Medium/Low priority,
+and finally the persisted sibling `sort_order` and stable UUID. Overdue checks
+use the computer's local calendar date. Search matches task titles and
+descriptions without case sensitivity; filter preferences are stored in Qt
+settings while task data remains in SQLite.

@@ -40,3 +40,7 @@ def log_directory(**kwargs: object) -> Path:
     """Return the directory for rotating diagnostic logs."""
     return application_data_directory(**kwargs) / "logs"
 
+
+def default_database_path(**kwargs: object) -> Path:
+    """Return the replaceable M4 local dataset location."""
+    return application_data_directory(**kwargs) / "flowtrack.db"
