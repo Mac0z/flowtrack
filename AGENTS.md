@@ -100,7 +100,7 @@ README.md
 
 ## Coding Standards
 
-- Target Python 3.13.
+- Target Python 3.12 only.
 - Use type hints for public functions, methods, and important internal interfaces.
 - Prefer small, explicit functions over clever or highly dynamic code.
 - Use descriptive names.

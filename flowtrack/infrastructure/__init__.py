@@ -1,0 +1,2 @@
+"""Cross-platform infrastructure adapters."""
+
