@@ -1,1 +1,1 @@
-"""Reserved for a later FlowTrack milestone."""
+"""FlowTrack domain vocabulary independent of persistence and Qt."""
