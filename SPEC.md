@@ -360,8 +360,8 @@ destabilising others.
 
 ### 5.1 Technology baseline
 
--   Python 3.13.
--   PySide6 / Qt 6.
+-   Python 3.12
+-   PySide6 6.7.3/ Qt 6.7
 -   SQLite.
 -   SQLAlchemy 2.x for persistence.
 -   Alembic for schema migrations.
@@ -433,6 +433,13 @@ docs/
     icons and system integration.
 -   Platform-specific code requires a documented reason and appropriate
     tests where practical.
+
+
+## 5.4 Compatibility baseline:
+- macOS 11 Big Sur or later, Intel and Apple Silicon
+- Windows 10/11 x86-64
+- FlowTrack must remain compatible with PySide6 6.7.3 APIs.
+- Do not introduce dependencies requiring macOS 12+.
 
 ------------------------------------------------------------------------
 
