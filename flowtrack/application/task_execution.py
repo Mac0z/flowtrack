@@ -9,7 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from flowtrack.domain.enums import ProgressMode, TaskPriority, TaskStatus
-from flowtrack.domain.services import completed_at_for_status, ensure_dependency_is_acyclic, ensure_valid_parent
+from flowtrack.domain.services import (
+    IncompleteChildrenError,
+    completed_at_for_status,
+    ensure_children_allow_completion,
+    ensure_dependency_is_acyclic,
+    ensure_valid_parent,
+)
 from flowtrack.persistence.database import transaction
 from flowtrack.persistence.models import Dependency, Owner, Tag, Task
 from flowtrack.persistence.repositories import DependencyRepository, OwnerRepository, TagRepository, TaskRepository
@@ -65,19 +71,19 @@ class TaskExecutionService:
                 ensure_valid_parent(task_id, changes["parent_task_id"], parent_map)  # type: ignore[arg-type]
             if "status" in changes:
                 new_status = TaskStatus(changes["status"])
+                try:
+                    ensure_children_allow_completion(new_status, [child.status for child in task.children])
+                except IncompleteChildrenError as error:
+                    raise TaskValidationError(str(error)) from error
                 task.completed_at = completed_at_for_status(task.status, new_status, task.completed_at,
                                                               now=datetime.now(timezone.utc))
                 task.status = new_status
                 changes.pop("status")
-                if new_status is TaskStatus.COMPLETE:
-                    task.progress_mode = ProgressMode.MANUAL
-                    task.manual_progress = 100
             for name, value in changes.items():
                 setattr(task, name, value)
 
     def complete_task(self, task_id: UUID, complete: bool = True) -> None:
-        self.update_task(task_id, status=TaskStatus.COMPLETE if complete else TaskStatus.NOT_STARTED,
-                         **({} if complete else {"progress_mode": ProgressMode.AUTOMATIC, "manual_progress": 0}))
+        self.update_task(task_id, status=TaskStatus.COMPLETE if complete else TaskStatus.NOT_STARTED)
 
     def cancel_task(self, task_id: UUID) -> None:
         self.update_task(task_id, status=TaskStatus.CANCELLED)

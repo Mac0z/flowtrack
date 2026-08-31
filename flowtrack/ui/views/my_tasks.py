@@ -2,12 +2,12 @@
 from uuid import UUID
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
-from flowtrack.application.task_execution import TaskExecutionService
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from flowtrack.application.task_execution import TaskExecutionService, TaskValidationError
 from flowtrack.application.task_queries import TaskFilters, TaskQueryService
 from flowtrack.domain.enums import TaskPriority, TaskStatus
 from flowtrack.infrastructure.settings import ApplicationSettings
-from flowtrack.ui.widgets import SectionHeading
+from flowtrack.ui.widgets import ProgressDisplay, SectionHeading
 from flowtrack.ui.theme.dark import DARK_THEME
 from flowtrack.ui.theme.status import status_color
 
@@ -22,7 +22,7 @@ class MyTasksView(QWidget):
         for text,data in (("Any date",None),("Overdue","overdue"),("Due this week","week"),("No due date","none")):self.date_window.addItem(text,data)
         reset=QPushButton("Reset"); reset.clicked.connect(self.reset_filters)
         for w in (self.search,self.status,self.priority,self.project,self.owner,self.tag,self.date_window,reset):bar.addWidget(w)
-        bar.setStretch(0,2); layout.addLayout(bar); self.table=QTableWidget(0,7); self.table.setHorizontalHeaderLabels(["Done","Task","Status","Priority","Project","Owner","Due"]); self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.table.verticalHeader().setDefaultSectionSize(34); self.table.cellDoubleClicked.connect(lambda row,_:self.task_selected.emit(self.table.item(row,1).data(256))); self.table.cellClicked.connect(self._clicked); layout.addWidget(self.table,1)
+        bar.setStretch(0,2); layout.addLayout(bar); self.table=QTableWidget(0,8); self.table.setHorizontalHeaderLabels(["Done","Task","Status","Priority","Project","Owner","Due","Progress"]); self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows); self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); self.table.verticalHeader().setDefaultSectionSize(34); self.table.cellDoubleClicked.connect(lambda row,_:self.task_selected.emit(self.table.item(row,1).data(256))); self.table.cellClicked.connect(self._clicked); layout.addWidget(self.table,1)
         self.search.textChanged.connect(self.refresh)
         for combo in (self.status,self.priority,self.project,self.owner,self.tag,self.date_window):combo.currentIndexChanged.connect(self.refresh)
         self._options(); self._restore(); self.refresh()
@@ -54,10 +54,17 @@ class MyTasksView(QWidget):
                 elif row.status in (TaskStatus.COMPLETE, TaskStatus.CANCELLED):
                     item.setForeground(QColor(DARK_THEME.colors.text_muted))
                 self.table.setItem(r,c,item)
+            self.table.setCellWidget(r, 7, ProgressDisplay(row.progress))
         self.table.resizeColumnsToContents(); self.settings.my_tasks_filters={"status":str(self.status.currentData()) if self.status.currentData() else None,"priority":str(self.priority.currentData()) if self.priority.currentData() else None,"project":str(self.project.currentData()) if self.project.currentData() else None,"owner":str(self.owner.currentData()) if self.owner.currentData() else None,"tag":str(self.tag.currentData()) if self.tag.currentData() else None,"date":self.date_window.currentData()}
     def _clicked(self,row:int,column:int)->None:
         if column==0:
-            item=self.table.item(row,0); self.service.complete_task(item.data(256),item.text()!="✓"); self.refresh(); self.data_changed.emit()
+            item=self.table.item(row,0)
+            try:
+                self.service.complete_task(item.data(256),item.text()!="✓")
+            except TaskValidationError:
+                QMessageBox.warning(self, "Cannot complete task", "Task cannot be completed while it has unfinished child tasks. Complete or cancel the remaining child tasks first.")
+                return
+            self.refresh(); self.data_changed.emit()
     def focus_search(self)->None:self.search.setFocus(); self.search.selectAll()
     def reset_filters(self)->None:
         self.search.clear()

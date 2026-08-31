@@ -6,7 +6,12 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 from flowtrack.domain.enums import ProjectStatus, TaskPriority, TaskStatus
-from flowtrack.domain.services import calculate_project_progress, calculate_task_progress, is_overdue
+from flowtrack.domain.services import (
+    calculate_project_progress,
+    calculate_task_automatic_progress,
+    calculate_task_progress,
+    is_overdue,
+)
 from flowtrack.persistence.models import Dependency, Owner, Project, Tag, Task
 
 DUE_SOON_DAYS = 7
@@ -73,6 +78,8 @@ class TaskQueryService:
             return {"id": task.id, "title": task.title, "description": task.description or "", "status": task.status,
                     "priority": task.priority, "owner_id": task.owner_id, "project_id": task.project_id,
                     "start_date": task.start_date, "due_date": task.due_date, "progress": calculate_task_progress(task),
+                    "progress_mode": task.progress_mode, "manual_progress": task.manual_progress,
+                    "automatic_progress": calculate_task_automatic_progress(task),
                     "tags": tuple((t.id, t.name) for t in task.tags),
                     "children": tuple((c.id, c.title, c.status) for c in task.children),
                     "dependencies": tuple((p.id, p.title) for p in predecessors)}
