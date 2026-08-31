@@ -28,9 +28,15 @@ def test_initial_migration_can_downgrade_and_upgrade(tmp_path) -> None:
     migrate_database(database_path)
     config = migration_config(f"sqlite:///{database_path.as_posix()}")
     command.downgrade(config, "base")
+    downgraded_engine = create_database_engine(database_path)
+    assert set(inspect(downgraded_engine).get_table_names()) == {"alembic_version"}
+    downgraded_engine.dispose()
+
     command.upgrade(config, "head")
     engine = create_database_engine(database_path)
-    assert "tasks" in inspect(engine).get_table_names()
+    assert set(inspect(engine).get_table_names()) == {
+        "alembic_version", "dependencies", "owners", "projects", "tags", "task_tags", "tasks"
+    }
     engine.dispose()
 
 

@@ -29,6 +29,11 @@ def run_migrations_online() -> None:
     )
     with connectable.connect() as connection:
         connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        # Executing the PRAGMA activates SQLAlchemy's autobegin state even
+        # though SQLite does not begin a DBAPI transaction for the statement.
+        # End that implicit transaction so Alembic owns and commits the
+        # migration transaction (including its alembic_version update).
+        connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
         with context.begin_transaction():
             context.run_migrations()
