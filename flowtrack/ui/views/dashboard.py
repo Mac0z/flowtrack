@@ -1,8 +1,18 @@
 """M4 execution dashboard."""
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 from flowtrack.application.task_queries import TaskQueryService
-from flowtrack.ui.widgets import CommandField, SectionHeading, SurfaceCard
+from flowtrack.ui.widgets import CommandField, ProgressDisplay, SectionHeading, SurfaceCard
 
 class DashboardView(QWidget):
     quick_add_requested=Signal(); task_selected=Signal(object); global_search_requested=Signal()
@@ -19,7 +29,27 @@ class DashboardView(QWidget):
         for key,label in self.kpis.items(): label.setText(str(getattr(data,key)))
         self.task_list.clear()
         for row in data.due_this_week:
-            self.task_list.addItem(f"{row.title}   ·   {row.due_date:%a %d %b}"); self.task_list.item(self.task_list.count()-1).setData(256,row.id)
+            widget = QWidget()
+            widget.setObjectName("dashboardTaskRow")
+            widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            widget.setMinimumHeight(36)
+            line = QHBoxLayout(widget)
+            line.setContentsMargins(8, 4, 8, 4)
+            line.setSpacing(12)
+            label = QLabel(f"{row.title}   ·   {row.due_date:%a %d %b}")
+            label.setObjectName("dashboardTaskLabel")
+            line.addWidget(label, 1)
+            progress = ProgressDisplay(row.progress)
+            progress.setFixedWidth(82)
+            progress.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            line.addWidget(progress)
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, row.id)
+            row_size = widget.sizeHint().expandedTo(widget.minimumSizeHint())
+            row_size.setHeight(max(row_size.height(), widget.minimumHeight()))
+            item.setSizeHint(row_size)
+            self.task_list.addItem(item)
+            self.task_list.setItemWidget(item, widget)
         self.empty.setVisible(not data.due_this_week); self.project_list.clear()
         for _,name,progress,count,due in data.projects: self.project_list.addItem(f"{name}   {progress:.0f}%  ·  {count} tasks" + (f"  ·  {due:%d %b}" if due else ""))
         self.pinned.setText("Pinned: "+", ".join(name for _,name in data.pinned_projects) if data.pinned_projects else "No pinned projects")

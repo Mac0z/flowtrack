@@ -7,12 +7,12 @@ from uuid import UUID
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget,
+    QListWidget, QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from flowtrack.application.task_execution import TaskExecutionService, TaskValidationError
 from flowtrack.application.task_queries import TaskQueryService
-from flowtrack.domain.enums import TaskPriority, TaskStatus
+from flowtrack.domain.enums import ProgressMode, TaskPriority, TaskStatus
 from flowtrack.ui.widgets.nullable_date_edit import NullableDateEdit
 
 
@@ -42,7 +42,13 @@ class TaskInspector(QWidget):
         self.owner = QComboBox()
         self.start = NullableDateEdit()
         self.due = NullableDateEdit()
-        self.progress = QProgressBar()
+        self.progress_mode = QComboBox()
+        self.progress = QSpinBox()
+        self.progress.setRange(0, 100)
+        self.progress.setSuffix("%")
+        self._automatic_progress = 0
+        self._manual_progress = 0
+        self._loaded_progress_mode = ProgressMode.AUTOMATIC
         self.tags = QListWidget()
         self.tags.setMaximumHeight(80)
         self.tags.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
@@ -51,10 +57,13 @@ class TaskInspector(QWidget):
             self.status.addItem(value.value.replace("_", " ").title(), value.value)
         for value in TaskPriority:
             self.priority.addItem(value.value.title(), value.value)
+        for value in ProgressMode:
+            self.progress_mode.addItem(value.value.title(), value.value)
+        self.progress_mode.currentIndexChanged.connect(self._progress_mode_changed)
         for label, widget in (("Title", self.title), ("Description", self.description),
                               ("Status", self.status), ("Priority", self.priority),
                               ("Owner", self.owner), ("Start", self.start), ("Due", self.due),
-                              ("Progress", self.progress), ("Tags", self.tags),
+                              ("Progress mode", self.progress_mode), ("Progress", self.progress), ("Tags", self.tags),
                               ("Children", self.children), ("Dependencies", self.dependencies)):
             form.addRow(label, widget)
         layout.addLayout(form)
@@ -101,7 +110,12 @@ class TaskInspector(QWidget):
         self._select_data(self.owner, detail["owner_id"])
         self.start.set_date_or_none(detail["start_date"])  # type: ignore[arg-type]
         self.due.set_date_or_none(detail["due_date"])  # type: ignore[arg-type]
+        self._automatic_progress = round(float(detail["automatic_progress"]))
+        self._manual_progress = int(detail["manual_progress"])
+        self._loaded_progress_mode = ProgressMode(detail["progress_mode"])
+        self._select_data(self.progress_mode, detail["progress_mode"])
         self.progress.setValue(round(float(detail["progress"])))
+        self.progress.setReadOnly(self._loaded_progress_mode is ProgressMode.AUTOMATIC)
         self.tags.clear()
         selected = {self._stable_id(tag_id) for tag_id, _ in detail["tags"]}  # type: ignore[union-attr]
         for tag_id, name in self.queries.tags():
@@ -124,6 +138,10 @@ class TaskInspector(QWidget):
                 priority=TaskPriority(self.priority.currentData()),
                 owner_id=UUID(owner_data) if owner_data else None,
                 start_date=self.start.date_or_none(), due_date=self.due.date_or_none(),
+                progress_mode=ProgressMode(self.progress_mode.currentData()),
+                manual_progress=(self.progress.value()
+                                 if ProgressMode(self.progress_mode.currentData()) is ProgressMode.MANUAL
+                                 else self._manual_progress),
             )
             self.service.set_tags(
                 self.task_id,
@@ -135,6 +153,22 @@ class TaskInspector(QWidget):
         self.error.clear()
         self.saved.emit()
         self.load_task(self.task_id)
+
+    def _progress_mode_changed(self) -> None:
+        data = self.progress_mode.currentData()
+        if data is None:
+            return
+        mode = ProgressMode(data)
+        if mode is ProgressMode.AUTOMATIC:
+            self.progress.setValue(self._automatic_progress)
+            self.progress.setReadOnly(True)
+        else:
+            if self._loaded_progress_mode is ProgressMode.MANUAL:
+                value = self._manual_progress
+            else:
+                value = self._manual_progress or self._automatic_progress
+            self.progress.setValue(value)
+            self.progress.setReadOnly(False)
 
     def add_child(self) -> None:
         if self.task_id is None:

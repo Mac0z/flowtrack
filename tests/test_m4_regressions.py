@@ -9,6 +9,8 @@ import pytest
 pytest.importorskip("sqlalchemy")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel
 from sqlalchemy import create_engine, select
 
 from flowtrack.application import TaskExecutionService, TaskQueryService
@@ -18,6 +20,8 @@ from flowtrack.persistence.models import Base, Dependency, Task
 from flowtrack.ui.dialogs.quick_capture import QuickCaptureDialog
 from flowtrack.ui.theme.dark import DARK_THEME
 from flowtrack.ui.theme.status import STATUS_COLOR_TOKEN, status_color
+from flowtrack.ui.views.dashboard import DashboardView
+from flowtrack.ui.widgets import ProgressDisplay
 from flowtrack.ui.widgets.task_inspector import TaskInspector
 
 
@@ -55,6 +59,8 @@ def test_inspector_loads_and_saves_all_persisted_metadata(application, services)
     assert inspector.start.date_or_none() == date(2026, 9, 10)
     assert inspector.due.date_or_none() == date(2026, 9, 21)
     assert inspector.progress.value() == 37
+    assert inspector.progress_mode.currentData() == ProgressMode.MANUAL.value
+    assert not inspector.progress.isReadOnly()
     assert [item.text() for item in inspector.tags.selectedItems()] == ["Deep work"]
 
     inspector.start.set_date_or_none(date(2026, 10, 1))
@@ -64,6 +70,58 @@ def test_inspector_loads_and_saves_all_persisted_metadata(application, services)
     assert detail is not None
     assert detail["start_date"] == date(2026, 10, 1)
     assert detail["due_date"] is None
+
+
+def test_inspector_progress_modes_load_switch_and_persist(application, services):
+    commands, queries, _ = services
+    parent = commands.create_task("Parent")
+    child = commands.create_task("Child", parent_task_id=parent)
+    commands.complete_task(child)
+    inspector = TaskInspector(commands, queries)
+    inspector.load_task(parent)
+
+    assert inspector.progress_mode.currentData() == ProgressMode.AUTOMATIC.value
+    assert inspector.progress.value() == 100
+    assert inspector.progress.isReadOnly()
+
+    inspector._select_data(inspector.progress_mode, ProgressMode.MANUAL.value)
+    assert inspector.progress.value() == 100
+    assert not inspector.progress.isReadOnly()
+    inspector.progress.setValue(73)
+    inspector.save()
+    detail = queries.task_detail(parent)
+    assert detail["progress_mode"] is ProgressMode.MANUAL
+    assert detail["manual_progress"] == 73
+    assert detail["status"] is TaskStatus.NOT_STARTED
+
+    inspector._select_data(inspector.progress_mode, ProgressMode.AUTOMATIC.value)
+    assert inspector.progress.value() == 100
+    assert inspector.progress.isReadOnly()
+    inspector.save()
+    reopened = queries.task_detail(parent)
+    assert reopened["progress_mode"] is ProgressMode.AUTOMATIC
+    assert reopened["manual_progress"] == 73
+
+
+def test_dashboard_task_row_sizes_complete_content(application, services):
+    commands, queries, _ = services
+    task_id = commands.create_task("Readable dashboard task", due_date=date.today())
+    commands.update_task(task_id, progress_mode=ProgressMode.MANUAL, manual_progress=65)
+
+    dashboard = DashboardView(queries)
+    assert dashboard.task_list.count() == 1
+    item = dashboard.task_list.item(0)
+    row_widget = dashboard.task_list.itemWidget(item)
+    assert row_widget is not None
+    label = row_widget.findChild(QLabel, "dashboardTaskLabel")
+    progress = row_widget.findChild(ProgressDisplay)
+    assert label is not None
+    assert "Readable dashboard task" in label.text()
+    assert progress is not None
+    assert progress.value() == 65
+    assert item.data(Qt.ItemDataRole.UserRole) == task_id
+    assert item.sizeHint().height() >= row_widget.minimumHeight()
+    assert item.sizeHint().height() >= label.sizeHint().height()
 
 
 def test_inspector_represents_null_dates_as_intentional_none(application, services):

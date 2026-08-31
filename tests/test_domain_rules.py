@@ -15,6 +15,7 @@ from flowtrack.domain.services import (
     calculate_project_progress,
     calculate_task_progress,
     completed_at_for_status,
+    ensure_children_allow_completion,
     ensure_dependency_is_acyclic,
     ensure_valid_parent,
     is_cancelled,
@@ -122,6 +123,23 @@ def test_status_and_completion_timestamp_semantics() -> None:
     assert completed_at_for_status(TaskStatus.IN_PROGRESS, TaskStatus.COMPLETE, None, now=first_completion) == first_completion
     assert completed_at_for_status(TaskStatus.COMPLETE, TaskStatus.COMPLETE, first_completion, now=later) == first_completion
     assert completed_at_for_status(TaskStatus.COMPLETE, TaskStatus.IN_PROGRESS, first_completion, now=later) is None
+
+
+@pytest.mark.parametrize(
+    "child_status",
+    [TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.WAITING],
+)
+def test_unfinished_active_child_blocks_parent_completion(child_status: TaskStatus) -> None:
+    with pytest.raises(ValueError, match="unfinished child tasks"):
+        ensure_children_allow_completion(TaskStatus.COMPLETE, [child_status])
+
+
+@pytest.mark.parametrize(
+    "child_statuses",
+    [[TaskStatus.CANCELLED], [TaskStatus.COMPLETE], [TaskStatus.COMPLETE, TaskStatus.CANCELLED]],
+)
+def test_finished_or_cancelled_children_allow_parent_completion(child_statuses: list[TaskStatus]) -> None:
+    ensure_children_allow_completion(TaskStatus.COMPLETE, child_statuses)
 
 
 @pytest.mark.parametrize("status", [TaskStatus.COMPLETE, TaskStatus.CANCELLED])

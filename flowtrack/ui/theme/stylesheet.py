@@ -28,10 +28,12 @@ QLineEdit {{ background: {c.surface_secondary}; border: 1px solid {c.border_subt
 QDialog {{ background: {c.surface_elevated}; }}
 QListWidget {{ background: transparent; border: 0; outline: 0; }}
 QListWidget::item {{ padding: 10px; border-radius: {r.sm}px; }}
+QListWidget::item:hover {{ background: {c.surface_hover}; }}
 QListWidget::item:selected {{ background: {c.surface_selected}; }}
+#dashboardTaskRow {{ background: transparent; }}
 QTableWidget {{ background: {c.surface_primary}; border: 1px solid {c.border_subtle}; gridline-color: {c.divider}; selection-background-color: {c.surface_selected}; }}
 QHeaderView::section {{ background: {c.surface_secondary}; color: {c.text_secondary}; border: 0; border-bottom: 1px solid {c.border_subtle}; padding: 7px; }}
-QComboBox, QDateEdit, QPlainTextEdit {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; padding: 6px; }}
+QComboBox, QDateEdit, QPlainTextEdit, QSpinBox {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; padding: 6px; }}
 QProgressBar {{ border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; background: {c.surface_secondary}; text-align: center; }}
 QProgressBar::chunk {{ background: {c.accent}; border-radius: {r.sm}px; }}
 """
