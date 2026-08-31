@@ -48,9 +48,9 @@ class TaskInspector(QWidget):
         self.tags.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.children, self.dependencies = QLabel(), QLabel()
         for value in TaskStatus:
-            self.status.addItem(value.value.replace("_", " ").title(), value)
+            self.status.addItem(value.value.replace("_", " ").title(), value.value)
         for value in TaskPriority:
-            self.priority.addItem(value.value.title(), value)
+            self.priority.addItem(value.value.title(), value.value)
         for label, widget in (("Title", self.title), ("Description", self.description),
                               ("Status", self.status), ("Priority", self.priority),
                               ("Owner", self.owner), ("Start", self.start), ("Due", self.due),
@@ -120,7 +120,8 @@ class TaskInspector(QWidget):
             owner_data = self.owner.currentData()
             self.service.update_task(
                 self.task_id, title=self.title.text(), description=self.description.toPlainText(),
-                status=self.status.currentData(), priority=self.priority.currentData(),
+                status=TaskStatus(self.status.currentData()),
+                priority=TaskPriority(self.priority.currentData()),
                 owner_id=UUID(owner_data) if owner_data else None,
                 start_date=self.start.date_or_none(), due_date=self.due.date_or_none(),
             )

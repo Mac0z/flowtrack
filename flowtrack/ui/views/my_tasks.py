@@ -17,8 +17,8 @@ class MyTasksView(QWidget):
         super().__init__(parent); self.service,self.queries,self.settings=service,queries,settings; layout=QVBoxLayout(self); layout.setContentsMargins(24,20,24,20); layout.setSpacing(10); layout.addWidget(SectionHeading("My Tasks","Work across projects and standalone tasks"))
         bar=QHBoxLayout(); self.search=QLineEdit(); self.search.setPlaceholderText("Search title or description…"); self.status=QComboBox(); self.priority=QComboBox(); self.project=QComboBox(); self.owner=QComboBox(); self.tag=QComboBox(); self.date_window=QComboBox()
         self.status.addItem("All statuses",None); self.priority.addItem("All priorities",None)
-        for v in TaskStatus:self.status.addItem(v.value.replace("_"," ").title(),v)
-        for v in TaskPriority:self.priority.addItem(v.value.title(),v)
+        for v in TaskStatus:self.status.addItem(v.value.replace("_"," ").title(),v.value)
+        for v in TaskPriority:self.priority.addItem(v.value.title(),v.value)
         for text,data in (("Any date",None),("Overdue","overdue"),("Due this week","week"),("No due date","none")):self.date_window.addItem(text,data)
         reset=QPushButton("Reset"); reset.clicked.connect(self.reset_filters)
         for w in (self.search,self.status,self.priority,self.project,self.owner,self.tag,self.date_window,reset):bar.addWidget(w)
@@ -40,7 +40,8 @@ class MyTasksView(QWidget):
         today=date.today(); window=self.date_window.currentData(); due_from=due_to=None
         if window=="overdue":due_to=today-timedelta(days=1)
         elif window=="week":due_from=today; due_to=today+timedelta(days=6-today.weekday())
-        return TaskFilters(frozenset([self.status.currentData()]) if self.status.currentData() else frozenset(),frozenset([self.priority.currentData()]) if self.priority.currentData() else frozenset(),self.project.currentData(),self.owner.currentData(),frozenset([self.tag.currentData()]) if self.tag.currentData() else frozenset(),due_from,due_to)
+        status = self.status.currentData(); priority = self.priority.currentData()
+        return TaskFilters(frozenset([TaskStatus(status)]) if status else frozenset(),frozenset([TaskPriority(priority)]) if priority else frozenset(),self.project.currentData(),self.owner.currentData(),frozenset([self.tag.currentData()]) if self.tag.currentData() else frozenset(),due_from,due_to)
     def refresh(self,*_)->None:
         rows=self.queries.my_tasks(search=self.search.text(),filters=self._filters()); self.table.setRowCount(len(rows))
         for r,row in enumerate(rows):

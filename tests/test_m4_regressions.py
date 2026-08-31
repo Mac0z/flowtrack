@@ -49,8 +49,8 @@ def test_inspector_loads_and_saves_all_persisted_metadata(application, services)
 
     assert inspector.title.text() == "Persisted title"
     assert inspector.description.toPlainText() == "Persisted description"
-    assert inspector.status.currentData() is TaskStatus.IN_PROGRESS
-    assert inspector.priority.currentData() is TaskPriority.CRITICAL
+    assert inspector.status.currentData() == TaskStatus.IN_PROGRESS.value
+    assert inspector.priority.currentData() == TaskPriority.CRITICAL.value
     assert inspector.owner.currentData() == str(owner_id)
     assert inspector.start.date_or_none() == date(2026, 9, 10)
     assert inspector.due.date_or_none() == date(2026, 9, 21)
