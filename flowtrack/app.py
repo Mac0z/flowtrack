@@ -9,6 +9,8 @@ from PySide6.QtWidgets import QApplication
 
 from flowtrack import __version__
 from flowtrack.infrastructure.logging import configure_logging
+from flowtrack.infrastructure.settings import ApplicationSettings
+from flowtrack.ui.theme import apply_theme, get_theme
 from flowtrack.ui.windows.main_window import MainWindow
 
 
@@ -26,7 +28,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
     logger = logging.getLogger(__name__)
     logger.info("Starting FlowTrack %s", __version__)
     application = create_application(arguments)
-    window = MainWindow()
+    settings = ApplicationSettings()
+    apply_theme(application, get_theme(settings.theme_id))
+    window = MainWindow(settings)
     window.show()
     return application.exec()
-

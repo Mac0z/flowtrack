@@ -290,8 +290,12 @@ status/category meaning.
 
 ### 4.1 Design requirements
 
--   Default theme: dark.
--   Light theme may follow after v1.
+-   FlowTrack uses a token-based theme architecture. The initial/default
+    built-in theme is Dark; a Light theme may be added later.
+-   Views and widgets consume semantic theme tokens rather than hard-coded
+    visual colours wherever practical. Theme definitions must support future
+    built-in and validated user-created themes without requiring view rewrites.
+-   A Light theme and user-facing custom-theme editor are outside M3 scope.
 -   Sidebar remains visually quiet and supports pinned projects.
 -   Rounded surfaces and subtle elevation.
 -   Avoid excessive gradients, glow or decorative effects.
