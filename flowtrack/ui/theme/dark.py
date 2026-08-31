@@ -14,5 +14,8 @@ DARK_THEME = Theme(
         accent="#8b72e8", accent_hover="#9b84ee", accent_pressed="#765dce",
         success="#56b890", warning="#dda950", danger="#df6d7a", info="#65a9d8",
         focus="#aa96f5", disabled="#5e5c67",
+        status_not_started="#8f8b99", status_in_progress="#78add2",
+        status_blocked="#d97884", status_waiting="#d1a65e",
+        status_complete="#68aa8d", status_cancelled="#716e79",
     ),
 )

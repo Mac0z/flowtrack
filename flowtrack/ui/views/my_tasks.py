@@ -1,12 +1,15 @@
 """Compact cross-project task execution list."""
 from uuid import UUID
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from flowtrack.application.task_execution import TaskExecutionService
 from flowtrack.application.task_queries import TaskFilters, TaskQueryService
 from flowtrack.domain.enums import TaskPriority, TaskStatus
 from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.ui.widgets import SectionHeading
+from flowtrack.ui.theme.dark import DARK_THEME
+from flowtrack.ui.theme.status import status_color
 
 class MyTasksView(QWidget):
     task_selected=Signal(object); data_changed=Signal()
@@ -42,7 +45,14 @@ class MyTasksView(QWidget):
         rows=self.queries.my_tasks(search=self.search.text(),filters=self._filters()); self.table.setRowCount(len(rows))
         for r,row in enumerate(rows):
             values=("✓" if row.status is TaskStatus.COMPLETE else "○",row.title,row.status.value.replace("_"," ").title(),row.priority.value.title(),row.project_name or "—",row.owner_name or "—",row.due_date.isoformat() if row.due_date else "—")
-            for c,value in enumerate(values):item=QTableWidgetItem(value); item.setData(256,row.id); self.table.setItem(r,c,item)
+            for c,value in enumerate(values):
+                item=QTableWidgetItem(value); item.setData(256,row.id)
+                if c == 2:
+                    item.setForeground(QColor(status_color(DARK_THEME, row.status)))
+                    font = item.font(); font.setWeight(QFont.Weight.Medium); item.setFont(font)
+                elif row.status in (TaskStatus.COMPLETE, TaskStatus.CANCELLED):
+                    item.setForeground(QColor(DARK_THEME.colors.text_muted))
+                self.table.setItem(r,c,item)
         self.table.resizeColumnsToContents(); self.settings.my_tasks_filters={"status":str(self.status.currentData()) if self.status.currentData() else None,"priority":str(self.priority.currentData()) if self.priority.currentData() else None,"project":str(self.project.currentData()) if self.project.currentData() else None,"owner":str(self.owner.currentData()) if self.owner.currentData() else None,"tag":str(self.tag.currentData()) if self.tag.currentData() else None,"date":self.date_window.currentData()}
     def _clicked(self,row:int,column:int)->None:
         if column==0:

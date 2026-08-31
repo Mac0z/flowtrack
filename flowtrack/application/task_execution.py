@@ -27,6 +27,7 @@ class TaskExecutionService:
 
     def create_task(self, title: str, *, project_id: UUID | None = None,
                     parent_task_id: UUID | None = None, owner_id: UUID | None = None,
+                    start_date: date | None = None,
                     due_date: date | None = None, priority: TaskPriority = TaskPriority.MEDIUM,
                     description: str | None = None) -> UUID:
         clean_title = title.strip()
@@ -40,7 +41,7 @@ class TaskExecutionService:
                 project_id = parent.project_id
             task = Task(title=clean_title, description=(description or "").strip() or None,
                         project_id=project_id, parent_task_id=parent_task_id,
-                        owner_id=owner_id, due_date=due_date, priority=priority)
+                        owner_id=owner_id, start_date=start_date, due_date=due_date, priority=priority)
             TaskRepository(session).add(task)
             return task.id
 
@@ -86,7 +87,7 @@ class TaskExecutionService:
             task = self._require_task(session, task_id)
             if task.children and not allow_with_children:
                 raise TaskValidationError("Task has child tasks; confirm recursive deletion")
-            TaskRepository(session).delete(task)
+            TaskRepository(session).delete_hierarchy(task)
 
     def set_tags(self, task_id: UUID, tag_ids: list[UUID]) -> None:
         with transaction(self._factory) as session:

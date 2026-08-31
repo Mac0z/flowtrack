@@ -3,7 +3,7 @@
 from typing import Generic, TypeVar
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from flowtrack.persistence.models import Base, Dependency, Owner, Project, Tag, Task
@@ -51,6 +51,31 @@ class TaskRepository(Repository[Task]):
             .order_by(Task.sort_order, Task.created_at, Task.id)
         )
         return list(self._session.scalars(statement))
+
+    def delete_hierarchy(self, task: Task) -> None:
+        """Delete a task subtree and every link that refers to it.
+
+        This is explicit rather than relying on SQLite connection-specific
+        cascade settings, so application-created and test databases behave
+        identically.
+        """
+        descendants = list(
+            self._session.scalars(
+                select(Task).where(Task.parent_task_id == task.id)
+            )
+        )
+        for child in descendants:
+            self.delete_hierarchy(child)
+        self._session.execute(
+            delete(Dependency).where(
+                (Dependency.predecessor_task_id == task.id)
+                | (Dependency.successor_task_id == task.id)
+            )
+        )
+        # Assigning an empty collection lets SQLAlchemy remove task_tags even
+        # when SQLite foreign-key cascades were not enabled on this connection.
+        task.tags = []
+        self.delete(task)
 
 
 class OwnerRepository(Repository[Owner]):
