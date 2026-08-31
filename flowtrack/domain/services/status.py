@@ -5,6 +5,24 @@ from datetime import datetime
 from flowtrack.domain.enums import TaskStatus
 
 
+class IncompleteChildrenError(ValueError):
+    """Raised when completion would violate task hierarchy semantics."""
+
+
+def ensure_children_allow_completion(
+    new_status: TaskStatus,
+    child_statuses: list[TaskStatus],
+) -> None:
+    """Reject completion while an immediate, non-cancelled child is unfinished."""
+    if new_status is not TaskStatus.COMPLETE:
+        return
+    if any(status not in (TaskStatus.COMPLETE, TaskStatus.CANCELLED) for status in child_statuses):
+        raise IncompleteChildrenError(
+            "Task cannot be completed while it has unfinished child tasks. "
+            "Complete or cancel the remaining child tasks first."
+        )
+
+
 def is_complete(status: TaskStatus) -> bool:
     """Return whether a status represents finished work."""
     return status is TaskStatus.COMPLETE

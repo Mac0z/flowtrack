@@ -41,6 +41,21 @@ def calculate_task_progress(task: TaskProgressSource) -> float:
     return _calculate_task_progress(task, active=set())
 
 
+def calculate_task_automatic_progress(task: TaskProgressSource) -> float:
+    """Return the value the task would have in Automatic mode.
+
+    Child modes remain meaningful; only the supplied task's own manual override
+    is ignored.  This supports a mode editor without moving calculation logic
+    into the UI.
+    """
+    if task.status is TaskStatus.COMPLETE:
+        return 100.0
+    eligible = [child for child in task.children if child.status is not TaskStatus.CANCELLED]
+    if not eligible:
+        return 0.0
+    return sum(_calculate_task_progress(child, active={id(task)}) for child in eligible) / len(eligible)
+
+
 def _calculate_task_progress(task: TaskProgressSource, active: set[int]) -> float:
     identity = id(task)
     if identity in active:
