@@ -27,6 +27,12 @@ class ColorTokens:
     info: str
     focus: str
     disabled: str
+    status_not_started: str
+    status_in_progress: str
+    status_blocked: str
+    status_waiting: str
+    status_complete: str
+    status_cancelled: str
 
 
 @dataclass(frozen=True, slots=True)

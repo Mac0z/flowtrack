@@ -207,13 +207,13 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(self, "Delete task?", "Delete this task? Child tasks and dependencies may also be removed.",
                                       QMessageBox.StandardButton.Delete | QMessageBox.StandardButton.Cancel,
                                       QMessageBox.StandardButton.Cancel)
-        if answer is not QMessageBox.StandardButton.Delete: return
+        if answer != QMessageBox.StandardButton.Delete: return
         try: self.task_service.delete_task(task_id)
         except TaskValidationError:
             confirm = QMessageBox.question(self, "Delete task and children?", "This task has children. Delete the entire task hierarchy?",
                                            QMessageBox.StandardButton.Delete | QMessageBox.StandardButton.Cancel,
                                            QMessageBox.StandardButton.Cancel)
-            if confirm is not QMessageBox.StandardButton.Delete: return
+            if confirm != QMessageBox.StandardButton.Delete: return
             self.task_service.delete_task(task_id, allow_with_children=True)
         self.inspector.close_inspector(); self.refresh_execution_views()
 
