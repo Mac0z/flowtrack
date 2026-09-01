@@ -11,6 +11,7 @@ from flowtrack.persistence.models import Base
 from flowtrack.persistence.database import session_factory
 from flowtrack.application.task_execution import TaskExecutionService, TaskValidationError
 from flowtrack.application.task_queries import TaskQueryService
+from flowtrack.application.projects import ProjectQueryService, ProjectService
 
 from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.ui.dialogs.command_palette import CommandPalette
@@ -19,6 +20,7 @@ from flowtrack.ui.shortcuts import shell_shortcuts
 from flowtrack.ui.views.placeholder import PlaceholderView
 from flowtrack.ui.views.dashboard import DashboardView
 from flowtrack.ui.views.my_tasks import MyTasksView
+from flowtrack.ui.views.projects import ProjectsView
 from flowtrack.ui.dialogs.quick_capture import QuickCaptureDialog
 from flowtrack.ui.dialogs.people_tags import PeopleTagsDialog
 from flowtrack.ui.widgets.task_inspector import TaskInspector
@@ -41,6 +43,8 @@ class MainWindow(QMainWindow):
             Base.metadata.create_all(engine); factory = session_factory(engine)
             task_service, task_queries = TaskExecutionService(factory), TaskQueryService(factory)
         self.task_service, self.task_queries = task_service, task_queries
+        self.project_service = ProjectService(task_service._factory)
+        self.project_queries = ProjectQueryService(task_service._factory)
         self.command_palette = CommandPalette(self)
         self.command_palette.command_triggered.connect(self._execute_command)
         self.page_stack = QStackedWidget()
@@ -92,6 +96,11 @@ class MainWindow(QMainWindow):
             elif item.destination is Destination.MY_TASKS:
                 page = MyTasksView(self.task_service, self.task_queries, self.settings)
                 page.task_selected.connect(self.open_inspector); page.data_changed.connect(self.refresh_execution_views)
+            elif item.destination is Destination.PROJECTS:
+                page = ProjectsView(self.project_service, self.project_queries, self.task_service)
+                page.task_selected.connect(self.open_inspector)
+                page.new_task_requested.connect(self.open_project_task)
+                page.project_changed.connect(self.refresh_project_views)
             else:
                 page = PlaceholderView(item.label)
             self.pages[item.destination] = page
@@ -137,15 +146,13 @@ class MainWindow(QMainWindow):
         divider = QLabel("PINNED PROJECTS")
         divider.setObjectName("mutedText")
         layout.addWidget(divider)
-        pinned_hint = QLabel("Project shortcuts will appear here")
-        pinned_hint.setObjectName("mutedText")
-        pinned_hint.setWordWrap(True)
-        layout.addWidget(pinned_hint)
+        self.pinned_projects_widget = QWidget(); self.pinned_projects_layout = QVBoxLayout(self.pinned_projects_widget); self.pinned_projects_layout.setContentsMargins(0,0,0,0); self.pinned_projects_layout.setSpacing(2); layout.addWidget(self.pinned_projects_widget)
         manage = NavigationButton("Owners & Tags")
         manage.setCheckable(False); manage.clicked.connect(self.people_tags.open)
         layout.addWidget(manage)
         layout.addStretch()
         sidebar.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self.refresh_pinned_projects()
         return sidebar
 
     def _build_actions(self) -> None:
@@ -175,7 +182,31 @@ class MainWindow(QMainWindow):
         self.quick_capture.task_created.connect(self._task_created); self.quick_capture.open()
 
     def _task_created(self, task_id: object) -> None:
-        self.refresh_execution_views()
+        self.refresh_execution_views(); self.refresh_project_views()
+
+    def open_project_task(self, project_id: object) -> None:
+        self.quick_capture.open_for_project(project_id)
+
+    def open_project(self, project_id: object) -> None:
+        self.navigate(Destination.PROJECTS)
+        page = self.pages[Destination.PROJECTS]
+        if isinstance(page, ProjectsView): page.open_project(project_id)
+
+    def refresh_pinned_projects(self) -> None:
+        if not hasattr(self, "pinned_projects_layout"): return
+        while self.pinned_projects_layout.count():
+            item=self.pinned_projects_layout.takeAt(0); widget=item.widget()
+            if widget: widget.deleteLater()
+        projects=self.project_queries.pinned_projects()
+        if not projects:
+            hint=QLabel("No pinned projects"); hint.setObjectName("mutedText"); self.pinned_projects_layout.addWidget(hint)
+        for project in projects[:8]:
+            button=NavigationButton(project.name); button.setCheckable(False); button.setToolTip(project.name); button.clicked.connect(lambda _=False,pid=project.id:self.open_project(pid)); self.pinned_projects_layout.addWidget(button)
+
+    def refresh_project_views(self) -> None:
+        page=self.pages.get(Destination.PROJECTS)
+        if isinstance(page,ProjectsView): page.refresh()
+        self.refresh_pinned_projects(); self.refresh_execution_views()
 
     def refresh_execution_views(self) -> None:
         dashboard = self.pages.get(Destination.DASHBOARD); tasks = self.pages.get(Destination.MY_TASKS)
@@ -186,7 +217,7 @@ class MainWindow(QMainWindow):
         self.inspector.load_task(task_id)
         try: self.inspector.saved.disconnect(self.refresh_execution_views)
         except RuntimeError: pass
-        self.inspector.saved.connect(self.refresh_execution_views)
+        self.inspector.saved.connect(self.refresh_project_views)
 
     def focus_active_search(self) -> None:
         page = self.pages.get(self.active_destination)
@@ -215,7 +246,7 @@ class MainWindow(QMainWindow):
                                            QMessageBox.StandardButton.Cancel)
             if confirm != QMessageBox.StandardButton.Delete: return
             self.task_service.delete_task(task_id, allow_with_children=True)
-        self.inspector.close_inspector(); self.refresh_execution_views()
+        self.inspector.close_inspector(); self.refresh_project_views()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == 0x01000000 and self.inspector.isVisible(): self.inspector.close_inspector(); return

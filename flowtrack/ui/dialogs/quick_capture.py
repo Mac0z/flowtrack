@@ -68,6 +68,13 @@ class QuickCaptureDialog(QDialog):
         super().open()
         self.title_edit.setFocus()
 
+    def open_for_project(self, project_id: UUID) -> None:
+        """Open capture with the owning project already selected."""
+        self.open()
+        index = self.project_combo.findData(str(project_id))
+        if index >= 0:
+            self.project_combo.setCurrentIndex(index)
+
     def submit(self) -> None:
         project_data, owner_data = self.project_combo.currentData(), self.owner_combo.currentData()
         try:

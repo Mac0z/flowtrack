@@ -138,7 +138,7 @@ class TaskQueryService:
             projects = list(session.scalars(select(Project).options(selectinload(Project.tasks).selectinload(Task.children))))
             overview = tuple((p.id, p.name, calculate_project_progress(p), len(p.tasks), p.due_date) for p in projects
                              if p.status is not ProjectStatus.ARCHIVED)
-            pinned = tuple((p.id, p.name) for p in projects if p.is_pinned)
+            pinned = tuple((p.id, p.name) for p in projects if p.is_pinned and p.status is not ProjectStatus.ARCHIVED)
         return DashboardData(sum(p.status is ProjectStatus.ACTIVE for p in projects),
             sum(r.status is TaskStatus.IN_PROGRESS for r in rows), sum(r.status is TaskStatus.COMPLETE for r in rows),
             sum(r.overdue for r in rows), due_week, overview, pinned)
@@ -160,4 +160,4 @@ class TaskQueryService:
     def tags(self) -> list[tuple[UUID, str]]:
         with self._factory() as s: return [(t.id, t.name) for t in s.scalars(select(Tag).order_by(Tag.name))]
     def projects(self) -> list[tuple[UUID, str]]:
-        with self._factory() as s: return [(p.id, p.name) for p in s.scalars(select(Project).order_by(Project.name))]
+        with self._factory() as s: return [(p.id, p.name) for p in s.scalars(select(Project).where(Project.status != ProjectStatus.ARCHIVED).order_by(Project.name))]
