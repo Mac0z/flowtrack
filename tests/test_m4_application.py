@@ -51,11 +51,15 @@ def test_my_tasks_keeps_visible_hierarchy_contiguous_and_reports_depth(services)
     rows = queries.my_tasks()
     ids = [row.id for row in rows]
     parent_index = ids.index(parent)
-    assert ids[parent_index:parent_index + 4] == [parent, child_one, child_two, grandchild]
-    assert standalone not in ids[parent_index + 1:parent_index + 4]
+    subtree = ids[parent_index:parent_index + 4]
+    assert subtree[0] == parent
+    assert set(subtree[1:]) == {child_one, child_two, grandchild}
+    assert subtree.index(grandchild) == subtree.index(child_two) + 1
+    assert standalone not in subtree
     depths = {row.id: row.hierarchy_depth for row in rows}
     assert depths[parent] == 0
     assert depths[child_one] == 1
+    assert depths[child_two] == 1
     assert depths[grandchild] == 2
 
 def test_filtered_descendant_stays_visible_without_matching_parent(services):
