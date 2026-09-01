@@ -1,6 +1,6 @@
 """Compact cross-project task execution list."""
 from uuid import UUID
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from flowtrack.application.task_execution import TaskExecutionService, TaskValidationError
@@ -48,6 +48,10 @@ class MyTasksView(QWidget):
             values=("✓" if row.status is TaskStatus.COMPLETE else "○",row.title,row.status.value.replace("_"," ").title(),row.priority.value.title(),row.project_name or "—",row.owner_name or "—",row.due_date.isoformat() if row.due_date else "—")
             for c,value in enumerate(values):
                 item=QTableWidgetItem(value); item.setData(256,row.id)
+                if c == 1:
+                    item.setData(Qt.ItemDataRole.UserRole + 1, row.hierarchy_depth)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                    item.setText(("    " * row.hierarchy_depth) + row.title)
                 if c == 2:
                     item.setForeground(QColor(status_color(DARK_THEME, row.status)))
                     font = item.font(); font.setWeight(QFont.Weight.Medium); item.setFont(font)

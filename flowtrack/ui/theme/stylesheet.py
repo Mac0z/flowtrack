@@ -31,10 +31,12 @@ QListWidget::item {{ padding: 10px; border-radius: {r.sm}px; }}
 QListWidget::item:hover {{ background: {c.surface_hover}; }}
 QListWidget::item:selected {{ background: {c.surface_selected}; }}
 QListWidget::item:selected:hover {{ background: {c.surface_selected}; }}
-QWidget#dashboardTaskRow, QWidget#dashboardTaskRow QLabel {{ background: transparent; }}
 QTableWidget {{ background: {c.surface_primary}; border: 1px solid {c.border_subtle}; gridline-color: {c.divider}; selection-background-color: {c.surface_selected}; }}
 QHeaderView::section {{ background: {c.surface_secondary}; color: {c.text_secondary}; border: 0; border-bottom: 1px solid {c.border_subtle}; padding: 7px; }}
 QComboBox, QDateEdit, QPlainTextEdit, QSpinBox {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; padding: 6px; }}
 QProgressBar {{ border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; background: {c.surface_secondary}; text-align: center; }}
 QProgressBar::chunk {{ background: {c.accent}; border-radius: {r.sm}px; }}
+QWidget#tagChip {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; }}
+QPushButton#tagChipRemove {{ border: 0; background: transparent; padding: 2px 6px; color: {c.text_secondary}; }}
+QPushButton#tagChipRemove:hover {{ color: {c.text_primary}; background: {c.surface_hover}; }}
 """

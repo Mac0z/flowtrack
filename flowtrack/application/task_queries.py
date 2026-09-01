@@ -32,6 +32,7 @@ class TaskRow:
     project_id: UUID | None; project_name: str | None; owner_id: UUID | None; owner_name: str | None
     due_date: date | None; start_date: date | None; progress: float; sort_order: int
     tags: tuple[tuple[UUID, str], ...]; overdue: bool
+    parent_task_id: UUID | None; hierarchy_depth: int
 
 @dataclass(frozen=True, slots=True)
 class DashboardData:
@@ -60,13 +61,56 @@ class TaskQueryService:
             if filters.due_from: stmt = stmt.where(Task.due_date >= filters.due_from)
             if filters.due_to: stmt = stmt.where(Task.due_date <= filters.due_to)
             tasks = list(session.scalars(stmt.limit(limit)).unique())
-            rows = [self._row(task, today) for task in tasks]
+            parent_by_id = dict(session.execute(select(Task.id, Task.parent_task_id)).all())
+            rows = [self._row(task, today, self._hierarchy_depth(task.id, parent_by_id)) for task in tasks]
         priority = {TaskPriority.CRITICAL: 0, TaskPriority.HIGH: 1, TaskPriority.MEDIUM: 2, TaskPriority.LOW: 3}
         def key(row: TaskRow) -> tuple[object, ...]:
             active = row.status not in (TaskStatus.COMPLETE, TaskStatus.CANCELLED)
             due_soon = active and row.due_date is not None and today <= row.due_date <= today + timedelta(days=DUE_SOON_DAYS)
             return (not row.overdue, not due_soon, priority[row.priority], row.sort_order, row.id.hex)
-        return sorted(rows, key=key)
+        return self._hierarchy_order(rows, parent_by_id, key)
+
+    @staticmethod
+    def _hierarchy_depth(task_id: UUID, parent_by_id: dict[UUID, UUID | None]) -> int:
+        depth = 0
+        seen = {task_id}
+        parent_id = parent_by_id.get(task_id)
+        while parent_id is not None and parent_id not in seen:
+            depth += 1
+            seen.add(parent_id)
+            parent_id = parent_by_id.get(parent_id)
+        return depth
+
+    @staticmethod
+    def _hierarchy_order(
+        rows: list[TaskRow],
+        parent_by_id: dict[UUID, UUID | None],
+        key,
+    ) -> list[TaskRow]:
+        """Keep visible descendant subtrees together while retaining task sort intent."""
+        visible = {row.id: row for row in rows}
+        children: dict[UUID, list[TaskRow]] = {}
+        roots: list[TaskRow] = []
+        for row in rows:
+            parent_id = parent_by_id.get(row.id)
+            seen = {row.id}
+            while parent_id is not None and parent_id not in visible and parent_id not in seen:
+                seen.add(parent_id)
+                parent_id = parent_by_id.get(parent_id)
+            if parent_id in visible:
+                children.setdefault(parent_id, []).append(row)
+            else:
+                roots.append(row)
+
+        ordered: list[TaskRow] = []
+        def append_subtree(row: TaskRow) -> None:
+            ordered.append(row)
+            for child in sorted(children.get(row.id, ()), key=key):
+                append_subtree(child)
+
+        for root in sorted(roots, key=key):
+            append_subtree(root)
+        return ordered
 
     def task_detail(self, task_id: UUID) -> dict[str, object] | None:
         with self._factory() as session:
@@ -100,12 +144,13 @@ class TaskQueryService:
             sum(r.overdue for r in rows), due_week, overview, pinned)
 
     @staticmethod
-    def _row(task: Task, today: date) -> TaskRow:
+    def _row(task: Task, today: date, hierarchy_depth: int = 0) -> TaskRow:
         return TaskRow(task.id, task.title, task.description or "", task.status, task.priority,
             task.project_id, task.project.name if task.project else None, task.owner_id,
             task.owner.name if task.owner else None, task.due_date, task.start_date,
             calculate_task_progress(task), task.sort_order, tuple((t.id, t.name) for t in task.tags),
-            is_overdue(due_date=task.due_date, status=task.status, today=today))
+            is_overdue(due_date=task.due_date, status=task.status, today=today),
+            task.parent_task_id, hierarchy_depth)
 
     def owners(self, active_only: bool = False) -> list[tuple[UUID, str, bool]]:
         with self._factory() as s:
