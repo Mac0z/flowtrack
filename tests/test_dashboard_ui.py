@@ -5,12 +5,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel
-
-from flowtrack.ui.theme.dark import DARK_THEME
-from flowtrack.ui.theme.stylesheet import build_stylesheet
 from flowtrack.ui.views.dashboard import DashboardView
-from flowtrack.ui.widgets import ProgressDisplay
 
 
 class _DashboardQueries:
@@ -38,54 +33,38 @@ class _DashboardQueries:
         )
 
 
-def test_dashboard_task_row_is_sized_for_complete_content(application):
+def test_dashboard_table_displays_compact_task_data(application):
     task_id = uuid4()
     dashboard = DashboardView(_DashboardQueries(task_id))
 
-    item = dashboard.task_list.item(0)
-    row_widget = dashboard.task_list.itemWidget(item)
-    assert row_widget is not None
-
-    labels = row_widget.findChildren(QLabel)
-    progress_displays = row_widget.findChildren(ProgressDisplay)
-
-    assert item.data(Qt.ItemDataRole.UserRole) == task_id
-    assert any("Prepare project update" in label.text() for label in labels)
-    assert len(progress_displays) == 1
-    assert item.sizeHint().height() >= dashboard.TASK_ROW_MINIMUM_HEIGHT
-    assert item.sizeHint().height() >= row_widget.sizeHint().height()
+    assert dashboard.task_table.rowCount() == 1
+    assert dashboard.task_table.item(0, 0).text() == "Prepare project update 1"
+    assert dashboard.task_table.item(0, 1).text() == "Wed 02 Sep"
+    assert dashboard.task_table.item(0, 2).text() == "45%"
+    assert dashboard.task_table.item(0, 0).data(Qt.ItemDataRole.UserRole) == str(task_id)
+    assert dashboard.task_table.verticalHeader().defaultSectionSize() == dashboard.TASK_ROW_MINIMUM_HEIGHT
+    assert dashboard.task_table.editTriggers() == dashboard.task_table.EditTrigger.NoEditTriggers
 
 
-def test_dashboard_selected_task_row_keeps_item_highlight_visible(application):
+def test_dashboard_selection_and_activation_use_normal_full_rows(application):
     first_task_id = uuid4()
     second_task_id = uuid4()
     dashboard = DashboardView(_DashboardQueries(first_task_id, second_task_id))
 
-    second_item = dashboard.task_list.item(1)
-    dashboard.task_list.setCurrentItem(second_item)
-    row_widget = dashboard.task_list.itemWidget(second_item)
+    dashboard.task_table.selectRow(1)
+    selected = dashboard.task_table.selectionModel().selectedRows()
+    assert [index.row() for index in selected] == [1]
+    assert all(dashboard.task_table.item(1, column).isSelected() for column in range(3))
+    assert dashboard.task_table.item(1, 0).data(Qt.ItemDataRole.UserRole) == str(second_task_id)
 
-    assert dashboard.task_list.currentItem() is second_item
-    assert second_item.isSelected()
-    assert second_item.data(Qt.ItemDataRole.UserRole) == second_task_id
-    assert row_widget is not None
-    assert row_widget.objectName() == "dashboardTaskRow"
-    assert len(row_widget.findChildren(ProgressDisplay)) == 1
+    activated = []
+    dashboard.task_selected.connect(activated.append)
+    dashboard._activate_task(1, 2)
+    assert activated == [second_task_id]
 
-    stylesheet = build_stylesheet(DARK_THEME)
-    assert (
-        "QWidget#dashboardTaskRow, QWidget#dashboardTaskRow QLabel "
-        "{ background: transparent; }"
-    ) in stylesheet
-    assert (
-        f"QListWidget::item:hover {{ background: {DARK_THEME.colors.surface_hover}; }}"
-        in stylesheet
-    )
-    assert (
-        f"QListWidget::item:selected {{ background: {DARK_THEME.colors.surface_selected}; }}"
-        in stylesheet
-    )
-    assert (
-        "QListWidget::item:selected:hover "
-        f"{{ background: {DARK_THEME.colors.surface_selected}; }}"
-    ) in stylesheet
+
+def test_dashboard_empty_state_replaces_empty_table(application):
+    dashboard = DashboardView(_DashboardQueries())
+    assert dashboard.task_table.rowCount() == 0
+    assert dashboard.task_table.isHidden()
+    assert not dashboard.empty.isHidden()

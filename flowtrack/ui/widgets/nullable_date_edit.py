@@ -10,19 +10,30 @@ from PySide6.QtWidgets import QDateEdit
 
 
 class NullableDateEdit(QDateEdit):
-    """A QDateEdit whose minimum value is deliberately represented as unset."""
+    """A date editor with an explicit unset state, independent of Qt sentinels."""
 
     def __init__(self, none_text: str = "None", parent=None) -> None:
         super().__init__(parent)
+        self._none_text = none_text
+        self._is_none = False
+        self._setting_value = False
         self.setCalendarPopup(True)
-        self.setSpecialValueText(none_text)
+        self.dateChanged.connect(self._date_changed)
+        calendar = self.calendarWidget()
+        if calendar is not None:
+            calendar.clicked.connect(self._calendar_date_selected)
         self.set_date_or_none(None)
 
     def set_date_or_none(self, value: date | None) -> None:
-        self.setDate(QDate(value.year, value.month, value.day) if value else self.minimumDate())
+        self._setting_value = True
+        self._is_none = value is None
+        display_value = value or date.today()
+        self.setDate(QDate(display_value.year, display_value.month, display_value.day))
+        self._setting_value = False
+        self.lineEdit().setText(self._none_text if self._is_none else self.textFromDate(self.date()))
 
     def date_or_none(self) -> date | None:
-        if self.date() == self.minimumDate():
+        if self._is_none:
             return None
         value = self.date()
         return date(value.year(), value.month(), value.day())
@@ -30,6 +41,19 @@ class NullableDateEdit(QDateEdit):
     def clear_date(self) -> None:
         """Put the editor into its intentional unset state."""
         self.set_date_or_none(None)
+
+    def _date_changed(self, _value: QDate) -> None:
+        if not self._setting_value:
+            self._is_none = False
+
+    def _calendar_date_selected(self, value: QDate) -> None:
+        self._is_none = False
+        self.setDate(value)
+
+    def textFromDate(self, value: QDate) -> str:
+        if getattr(self, "_is_none", False):
+            return self._none_text
+        return super().textFromDate(value)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Delete:

@@ -57,7 +57,8 @@ def test_inspector_loads_and_saves_all_persisted_metadata(application, services)
     assert inspector.progress.value() == 37
     assert inspector.progress_mode.currentData() == ProgressMode.MANUAL.value
     assert not inspector.progress.isReadOnly()
-    assert [item.text() for item in inspector.tags.selectedItems()] == ["Deep work"]
+    assert inspector.assigned_tag_ids == {str(tag_id)}
+    assert inspector.available_tags.findData(str(tag_id)) == -1
 
     inspector.start.set_date_or_none(date(2026, 10, 1))
     inspector.due.set_date_or_none(None)
@@ -108,6 +109,68 @@ def test_inspector_represents_null_dates_as_intentional_none(application, servic
     assert inspector.due.date_or_none() is None
     assert inspector.start.text() == "None"
     assert inspector.due.text() == "None"
+    assert "1752" not in inspector.start.text()
+    assert "1752" not in inspector.due.text()
+
+
+def test_nullable_date_clear_and_real_historic_date(application, services):
+    commands, queries, _ = services
+    task_id = commands.create_task("Historic", start_date=date(1801, 2, 3))
+    inspector = TaskInspector(commands, queries)
+    inspector.load_task(task_id)
+    assert inspector.start.date_or_none() == date(1801, 2, 3)
+    inspector.start.clear_date()
+    inspector.save()
+    assert queries.task_detail(task_id)["start_date"] is None
+
+
+def test_inspector_tag_assignment_workflow_and_exact_persistence(application, services):
+    commands, queries, _ = services
+    assigned = commands.create_tag("Assigned")
+    available = commands.create_tag("Available")
+    task_id = commands.create_task("Tagged")
+    commands.set_tags(task_id, [assigned])
+    inspector = TaskInspector(commands, queries)
+    inspector.load_task(task_id)
+
+    assert inspector.assigned_tag_ids == {str(assigned)}
+    assert inspector.available_tags.findData(str(assigned)) == -1
+    assert inspector.available_tags.findData(str(available)) >= 0
+    inspector.available_tags.setCurrentIndex(inspector.available_tags.findData(str(available)))
+    inspector.add_selected_tag()
+    assert inspector.assigned_tag_ids == {str(assigned), str(available)}
+    assert inspector.available_tags.findData(str(available)) == -1
+    inspector.remove_tag(str(assigned))
+    assert inspector.assigned_tag_ids == {str(available)}
+    assert inspector.available_tags.findData(str(assigned)) >= 0
+    inspector.save()
+
+    reopened = TaskInspector(commands, queries)
+    reopened.load_task(task_id)
+    assert reopened.assigned_tag_ids == {str(available)}
+    assert queries.task_detail(task_id)["tags"] == ((available, "Available"),)
+
+
+def test_inspector_no_tags_empty_state(application, services):
+    commands, queries, _ = services
+    inspector = TaskInspector(commands, queries)
+    inspector.load_task(commands.create_task("Untagged"))
+    assert not inspector.assigned_tag_ids
+    assert not inspector.no_tags.isHidden()
+
+
+def test_add_child_defaults_dates_and_opens_child(application, services):
+    commands, queries, _ = services
+    parent = commands.create_task("Parent")
+    inspector = TaskInspector(commands, queries)
+    inspector.load_task(parent)
+    today = date.today()
+    inspector.add_child()
+    detail = queries.task_detail(inspector.task_id)
+    assert detail["start_date"] == today
+    assert detail["due_date"] == today + timedelta(days=1)
+    assert inspector.start.date_or_none() == today
+    assert inspector.due.date_or_none() == today + timedelta(days=1)
 
 
 def test_inspector_selects_inactive_current_owner(application, services):

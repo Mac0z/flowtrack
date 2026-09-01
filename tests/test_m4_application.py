@@ -40,6 +40,33 @@ def test_sorting_filters_owners_tags_and_hierarchy(services):
     assert queries.task_detail(soon)["children"][0][0] == child
     with pytest.raises(Exception): commands.update_task(soon, parent_task_id=child)
 
+def test_my_tasks_keeps_visible_hierarchy_contiguous_and_reports_depth(services):
+    commands, queries = services
+    parent = commands.create_task("Parent")
+    child_one = commands.create_task("Child one", parent_task_id=parent)
+    child_two = commands.create_task("Child two", parent_task_id=parent)
+    grandchild = commands.create_task("Grandchild", parent_task_id=child_two)
+    standalone = commands.create_task("Standalone", priority=TaskPriority.CRITICAL)
+
+    rows = queries.my_tasks()
+    ids = [row.id for row in rows]
+    parent_index = ids.index(parent)
+    assert ids[parent_index:parent_index + 4] == [parent, child_one, child_two, grandchild]
+    assert standalone not in ids[parent_index + 1:parent_index + 4]
+    depths = {row.id: row.hierarchy_depth for row in rows}
+    assert depths[parent] == 0
+    assert depths[child_one] == 1
+    assert depths[grandchild] == 2
+
+def test_filtered_descendant_stays_visible_without_matching_parent(services):
+    commands, queries = services
+    parent = commands.create_task("Planning parent")
+    child = commands.create_task("Needle child", parent_task_id=parent)
+    grandchild = commands.create_task("Needle grandchild", parent_task_id=child)
+    rows = queries.my_tasks(search="needle")
+    assert [row.id for row in rows] == [child, grandchild]
+    assert [row.hierarchy_depth for row in rows] == [1, 2]
+
 def test_validation_dashboard_and_deletion_guard(services):
     commands, queries = services
     with pytest.raises(TaskValidationError): commands.create_task("  ")
