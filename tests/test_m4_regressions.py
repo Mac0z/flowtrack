@@ -10,6 +10,7 @@ pytest.importorskip("sqlalchemy")
 pytest.importorskip("PySide6")
 
 from sqlalchemy import create_engine, select
+from PySide6.QtCore import QDate
 
 from flowtrack.application import TaskExecutionService, TaskQueryService
 from flowtrack.domain.enums import ProgressMode, TaskPriority, TaskStatus
@@ -111,6 +112,19 @@ def test_inspector_represents_null_dates_as_intentional_none(application, servic
     assert inspector.due.text() == "None"
     assert "1752" not in inspector.start.text()
     assert "1752" not in inspector.due.text()
+    application.processEvents()
+    assert inspector.start.lineEdit().text() == "None"
+    assert inspector.due.lineEdit().text() == "None"
+
+
+def test_nullable_date_user_selection_leaves_none_mode(application):
+    from flowtrack.ui.widgets.nullable_date_edit import NullableDateEdit
+
+    editor = NullableDateEdit()
+    editor.set_date_or_none(None)
+    editor.setDate(QDate(2026, 10, 5))
+    assert editor.date_or_none() == date(2026, 10, 5)
+    assert editor.text() == QDate(2026, 10, 5).toString(editor.displayFormat())
 
 
 def test_nullable_date_clear_and_real_historic_date(application, services):
