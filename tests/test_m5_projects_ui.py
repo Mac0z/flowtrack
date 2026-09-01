@@ -15,11 +15,14 @@ def make_view():
     return ProjectsView(projects,queries,tasks),projects,queries,tasks
 
 def test_cards_open_overview_and_archived_filter(application):
-    view,projects,_,_=make_view(); project=projects.create_project("Launch",description="Ship it")
+    view,projects,_,_=make_view(); project=projects.create_project("Launch",description="Ship it",colour="#ff00ff")
     view.refresh(); assert view.cards.count()==1
+    assert not view.cards.item(0).icon().isNull()
+    assert view.cards.item(0).foreground().color().name() != "#ff00ff"
     view.open_project(project); assert view.heading.title.text()=="Launch" and view.description.text()=="Ship it"
     projects.archive_project(project); view.show_projects(); assert view.cards.count()==0
     view.show_archived.setChecked(True); assert view.cards.count()==1
+    assert view.cards.item(0).foreground().color().name() == view.theme.colors.text_muted
 
 def test_project_list_hierarchy_activation_and_new_task_context(application):
     view,projects,_,tasks=make_view(); project=projects.create_project("Nested")

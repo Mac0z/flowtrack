@@ -2,25 +2,26 @@
 from __future__ import annotations
 from uuid import UUID
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout, QLabel, QListWidget,
     QListWidgetItem, QPushButton, QStackedWidget, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget)
 from flowtrack.application.projects import ProjectQueryService, ProjectService, ProjectSummary
 from flowtrack.application.task_execution import TaskExecutionService
 from flowtrack.domain.enums import ProjectStatus, TaskStatus
+from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.ui.dialogs.project_editor import ProjectEditorDialog
-from flowtrack.ui.theme.dark import DARK_THEME
+from flowtrack.ui.theme import get_theme
 from flowtrack.ui.theme.status import status_color
 from flowtrack.ui.widgets import ProgressDisplay, SectionHeading, SurfaceCard
 
 class ProjectsView(QWidget):
     task_selected=Signal(object); project_changed=Signal(); new_task_requested=Signal(object)
     def __init__(self, service:ProjectService, queries:ProjectQueryService, task_service:TaskExecutionService,parent=None)->None:
-        super().__init__(parent); self.service,self.queries,self.task_service=service,queries,task_service; self.current_project_id:UUID|None=None; self.editor=ProjectEditorDialog(service,queries,self); self.editor.project_saved.connect(self._saved)
+        super().__init__(parent); self.service,self.queries,self.task_service=service,queries,task_service; self.theme=get_theme(ApplicationSettings().theme_id); self.current_project_id:UUID|None=None; self.editor=ProjectEditorDialog(service,queries,self); self.editor.project_saved.connect(self._saved)
         root=QVBoxLayout(self); root.setContentsMargins(24,20,24,20); self.stack=QStackedWidget(); root.addWidget(self.stack)
         self.landing=QWidget(); ll=QVBoxLayout(self.landing); header=QHBoxLayout(); header.addWidget(SectionHeading("Projects","Plan and track connected work"),1); self.show_archived=QCheckBox("Show archived"); new=QPushButton("+ New Project"); new.clicked.connect(self.editor.open_for_create); header.addWidget(self.show_archived); header.addWidget(new); ll.addLayout(header)
-        self.cards=QListWidget(); self.cards.setSpacing(6); self.cards.itemDoubleClicked.connect(self._open_item); ll.addWidget(self.cards,1); self.empty=QLabel("No projects yet. Create your first project to organise connected work."); self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter); self.empty.setObjectName("mutedText"); ll.addWidget(self.empty); self.show_archived.toggled.connect(self.refresh); self.stack.addWidget(self.landing)
+        self.cards=QListWidget(); self.cards.setSpacing(6); self.cards.setIconSize(QSize(8,8)); self.cards.itemDoubleClicked.connect(self._open_item); ll.addWidget(self.cards,1); self.empty=QLabel("No projects yet. Create your first project to organise connected work."); self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter); self.empty.setObjectName("mutedText"); ll.addWidget(self.empty); self.show_archived.toggled.connect(self.refresh); self.stack.addWidget(self.landing)
         self.detail=QWidget(); dl=QVBoxLayout(self.detail); dh=QHBoxLayout(); back=QPushButton("‹ Projects"); back.clicked.connect(self.show_projects); self.heading=SectionHeading("Project",""); dh.addWidget(back); dh.addWidget(self.heading,1); self.pin=QPushButton(); self.pin.clicked.connect(self._toggle_pin); edit=QPushButton("Edit"); edit.clicked.connect(self._edit); self.archive=QPushButton(); self.archive.clicked.connect(self._archive); dh.addWidget(self.pin); dh.addWidget(edit); dh.addWidget(self.archive); dl.addLayout(dh)
         self.tabs=QTabWidget(); self.overview=QWidget(); self.overview_layout=QVBoxLayout(self.overview); self.metrics=QLabel(); self.metrics.setTextFormat(Qt.TextFormat.RichText); self.description=QLabel(); self.description.setWordWrap(True); self.progress=ProgressDisplay(0); self.overview_layout.addWidget(self.description); self.overview_layout.addWidget(self.progress); self.overview_layout.addWidget(self.metrics); self.overview_layout.addStretch()
         list_page=QWidget(); lp=QVBoxLayout(list_page); tools=QHBoxLayout(); tools.addWidget(QLabel("Project tasks")); tools.addStretch(); add=QPushButton("+ New Task"); add.clicked.connect(self._new_task); tools.addWidget(add); lp.addLayout(tools); self.table=QTableWidget(0,7); self.table.setHorizontalHeaderLabels(["Task","Status","Priority","Owner","Start","Due","Progress"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.cellDoubleClicked.connect(self._activate_task); lp.addWidget(self.table); self.no_tasks=QLabel("No project tasks yet. Add your first task."); self.no_tasks.setAlignment(Qt.AlignmentFlag.AlignCenter); self.no_tasks.setObjectName("mutedText"); lp.addWidget(self.no_tasks)
@@ -33,8 +34,10 @@ class ProjectsView(QWidget):
         projects=self.queries.list_projects(include_archived=self.show_archived.isChecked()); self.cards.clear()
         for project in projects:
             item=QListWidgetItem(("📌  " if project.is_pinned else "")+f"{project.name}\n{project.status.value.replace('_',' ').title()}   ·   {project.progress:.0f}%   ·   {project.task_count} tasks"+(f"   ·   Due {project.due_date.isoformat()}" if project.due_date else "")); item.setData(Qt.ItemDataRole.UserRole,project.id); item.setToolTip(project.description); item.setSizeHint(item.sizeHint().expandedTo(QSize(0,62)))
-            if project.status is ProjectStatus.ARCHIVED:item.setForeground(QColor(DARK_THEME.colors.text_muted))
-            elif project.colour:item.setForeground(QColor(project.colour))
+            project_colour=QColor(project.colour)
+            if project_colour.isValid():
+                marker=QPixmap(8,8); marker.fill(project_colour); item.setIcon(QIcon(marker))
+            if project.status is ProjectStatus.ARCHIVED:item.setForeground(QColor(self.theme.colors.text_muted))
             self.cards.addItem(item)
         self.empty.setVisible(not projects); self.cards.setVisible(bool(projects))
         if self.current_project_id and self.stack.currentWidget() is self.detail:self._load_detail()
@@ -51,8 +54,8 @@ class ProjectsView(QWidget):
             values=(('    '*row.hierarchy_depth)+row.title,row.status.value.replace('_',' ').title(),row.priority.value.title(),row.owner_name or '—',row.start_date.isoformat() if row.start_date else '—',row.due_date.isoformat() if row.due_date else '—')
             for c,value in enumerate(values):
                 item=QTableWidgetItem(value); item.setData(Qt.ItemDataRole.UserRole,row.id); item.setData(Qt.ItemDataRole.UserRole+1,row.hierarchy_depth)
-                if c==1:item.setForeground(QColor(status_color(DARK_THEME,row.status)))
-                elif row.status in (TaskStatus.COMPLETE,TaskStatus.CANCELLED):item.setForeground(QColor(DARK_THEME.colors.text_muted))
+                if c==1:item.setForeground(QColor(status_color(self.theme,row.status)))
+                elif row.status in (TaskStatus.COMPLETE,TaskStatus.CANCELLED):item.setForeground(QColor(self.theme.colors.text_muted))
                 self.table.setItem(r,c,item)
             self.table.setCellWidget(r,6,ProgressDisplay(row.progress))
         self.table.resizeColumnsToContents()
