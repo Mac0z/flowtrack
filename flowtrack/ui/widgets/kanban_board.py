@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from uuid import UUID
 from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt, Signal
-from PySide6.QtGui import QDrag
+from PySide6.QtGui import QDrag, QResizeEvent
 from sqlalchemy.exc import SQLAlchemyError
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QHBoxLayout, QLabel,
     QListWidget, QListWidgetItem, QScrollArea, QVBoxLayout, QWidget)
@@ -30,6 +30,14 @@ class KanbanColumnList(QListWidget):
         self.setDropIndicatorShown(True); self.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection); self.setSpacing(7)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._fit_items_to_viewport()
+    def _fit_items_to_viewport(self) -> None:
+        available_width=max(0,self.viewport().width()-(2*self.spacing()))
+        for index in range(self.count()):
+            item=self.item(index); size=item.sizeHint(); size.setWidth(available_width); item.setSizeHint(size)
     def startDrag(self, _supported_actions: Qt.DropAction) -> None:
         item=self.currentItem()
         if item is None:return
@@ -93,7 +101,8 @@ class ProjectBoard(QWidget):
         for status,task_list in self.columns.items():
             task_list.clear(); visible_rows=grouped[status]; self.headings[status].setText(f"{_status_label(status)}   {len(visible_rows)}")
             for row in visible_rows:
-                item=QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole,row.id); item.setSizeHint(QSize(200,92+(18 if row.parent_task_id else 0))); task_list.addItem(item); task_list.setItemWidget(item,TaskCard(row,titles.get(row.parent_task_id)))
+                item=QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole,row.id); item.setSizeHint(QSize(0,92+(18 if row.parent_task_id else 0))); task_list.addItem(item); task_list.setItemWidget(item,TaskCard(row,titles.get(row.parent_task_id)))
+            task_list._fit_items_to_viewport()
     def move_task(self,task_id:UUID,status:TaskStatus)->bool:
         current=next((column for column in self.columns.values() if any(column.item(i).data(Qt.ItemDataRole.UserRole)==task_id for i in range(column.count()))),None)
         if current is not None and current.status is status:return False
