@@ -63,6 +63,20 @@ class DashboardData:
     due_this_week: tuple[TaskRow, ...]; projects: tuple[tuple[UUID, str, float, int, date | None], ...]
     pinned_projects: tuple[tuple[UUID, str], ...]
 
+@dataclass(frozen=True, slots=True)
+class DependencyTaskRow:
+    task_id: UUID
+    title: str
+    project_id: UUID | None
+    project_name: str | None
+    status: TaskStatus
+
+@dataclass(frozen=True, slots=True)
+class TaskDependencyData:
+    predecessors: tuple[DependencyTaskRow, ...]
+    successors: tuple[DependencyTaskRow, ...]
+    add_choices: tuple[DependencyTaskRow, ...]
+
 class TaskQueryService:
     """Produces bounded eager-loaded read models without leaking ORM objects."""
     def __init__(self, factory: sessionmaker[Session]) -> None: self._factory = factory
@@ -163,6 +177,28 @@ class TaskQueryService:
                     "tags": tuple((t.id, t.name) for t in task.tags),
                     "children": tuple((c.id, c.title, c.status) for c in task.children),
                     "dependencies": tuple((p.id, p.title) for p in predecessors)}
+
+    def task_dependencies(self, task_id: UUID) -> TaskDependencyData:
+        """Return inspector dependency rows and globally valid picker candidates."""
+        with self._factory() as session:
+            predecessor_ids = set(session.scalars(select(Dependency.predecessor_task_id).where(
+                Dependency.successor_task_id == task_id)))
+            successor_ids = set(session.scalars(select(Dependency.successor_task_id).where(
+                Dependency.predecessor_task_id == task_id)))
+            tasks = list(session.scalars(select(Task).options(selectinload(Task.project))))
+
+        def row(task: Task) -> DependencyTaskRow:
+            return DependencyTaskRow(task.id, task.title, task.project_id,
+                                     task.project.name if task.project else None, task.status)
+
+        by_id = {task.id: task for task in tasks}
+        order = lambda item: (item.title.casefold(), (item.project_name or "").casefold(), item.task_id.hex)
+        predecessors = sorted((row(by_id[item]) for item in predecessor_ids if item in by_id), key=order)
+        successors = sorted((row(by_id[item]) for item in successor_ids if item in by_id), key=order)
+        choices = sorted((row(task) for task in tasks
+                          if task.id != task_id and task.id not in predecessor_ids
+                          and task.status is not TaskStatus.CANCELLED), key=order)
+        return TaskDependencyData(tuple(predecessors), tuple(successors), tuple(choices))
 
     def dashboard(self, *, today: date | None = None) -> DashboardData:
         today = today or date.today()

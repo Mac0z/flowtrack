@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from uuid import UUID
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
     QPushButton, QSpinBox, QVBoxLayout, QWidget,
@@ -35,6 +35,31 @@ class TagChip(QWidget):
         remove.setAccessibleName(f"Remove {name}")
         remove.clicked.connect(lambda: self.remove_requested.emit(self.tag_id))
         layout.addWidget(remove)
+
+
+class DependencyRow(QWidget):
+    """Readable dependency entry with an unambiguous remove action."""
+
+    remove_requested = Signal(object)
+
+    def __init__(self, task_id: UUID, title: str, context: str,
+                 *, removable: bool, parent=None) -> None:
+        super().__init__(parent)
+        self.task_id = task_id
+        self.setObjectName("dependencyRow")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 3, 2, 3)
+        layout.setSpacing(4)
+        text = QLabel(f"{title}\n{context}")
+        text.setObjectName("dependencyText")
+        layout.addWidget(text, 1)
+        if removable:
+            remove = QPushButton("×")
+            remove.setObjectName("dependencyRemove")
+            remove.setAccessibleName(f"Remove dependency on {title}")
+            remove.setToolTip(f"Remove dependency on {title}")
+            remove.clicked.connect(lambda: self.remove_requested.emit(self.task_id))
+            layout.addWidget(remove)
 
 
 class TaskInspector(QWidget):
@@ -91,7 +116,47 @@ class TaskInspector(QWidget):
         self.no_tags = QLabel("No tags")
         self.no_tags.setObjectName("mutedText")
         tag_layout.addWidget(self.no_tags)
-        self.children, self.dependencies = QLabel(), QLabel()
+        self.children = QLabel()
+        self.dependency_editor = QWidget()
+        dependency_layout = QVBoxLayout(self.dependency_editor)
+        dependency_layout.setContentsMargins(0, 0, 0, 0)
+        dependency_layout.setSpacing(5)
+        depends_heading = QLabel("DEPENDS ON")
+        depends_heading.setObjectName("mutedText")
+        dependency_layout.addWidget(depends_heading)
+        add_dependency_layout = QHBoxLayout()
+        self.dependency_picker = QComboBox()
+        self.dependency_picker.setEditable(True)
+        self.dependency_picker.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.dependency_picker.setPlaceholderText("Select or search tasks…")
+        self.dependency_picker.setAccessibleName("Dependency task picker")
+        completer = self.dependency_picker.completer()
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.add_dependency_button = QPushButton("Add")
+        self.add_dependency_button.clicked.connect(self.add_selected_dependency)
+        add_dependency_layout.addWidget(self.dependency_picker, 1)
+        add_dependency_layout.addWidget(self.add_dependency_button)
+        dependency_layout.addLayout(add_dependency_layout)
+        self.predecessors_widget = QWidget()
+        self.predecessors_layout = QVBoxLayout(self.predecessors_widget)
+        self.predecessors_layout.setContentsMargins(0, 0, 0, 0)
+        self.predecessors_layout.setSpacing(3)
+        dependency_layout.addWidget(self.predecessors_widget)
+        self.no_predecessors = QLabel("No dependencies")
+        self.no_predecessors.setObjectName("mutedText")
+        dependency_layout.addWidget(self.no_predecessors)
+        blocks_heading = QLabel("BLOCKS")
+        blocks_heading.setObjectName("mutedText")
+        dependency_layout.addWidget(blocks_heading)
+        self.successors_widget = QWidget()
+        self.successors_layout = QVBoxLayout(self.successors_widget)
+        self.successors_layout.setContentsMargins(0, 0, 0, 0)
+        self.successors_layout.setSpacing(3)
+        dependency_layout.addWidget(self.successors_widget)
+        self.no_successors = QLabel("Nothing currently depends on this task")
+        self.no_successors.setObjectName("mutedText")
+        dependency_layout.addWidget(self.no_successors)
         for value in TaskStatus:
             self.status.addItem(value.value.replace("_", " ").title(), value.value)
         for value in TaskPriority:
@@ -103,7 +168,7 @@ class TaskInspector(QWidget):
                               ("Status", self.status), ("Priority", self.priority),
                               ("Owner", self.owner), ("Start", self.start), ("Due", self.due),
                               ("Progress mode", self.progress_mode), ("Progress", self.progress), ("Tags", self.tag_editor),
-                              ("Children", self.children), ("Dependencies", self.dependencies)):
+                              ("Children", self.children), ("Dependencies", self.dependency_editor)):
             form.addRow(label, widget)
         layout.addLayout(form)
         self.error = QLabel()
@@ -159,8 +224,67 @@ class TaskInspector(QWidget):
         self.assigned_tag_ids = {str(tag_id) for tag_id, _ in detail["tags"]}  # type: ignore[union-attr]
         self._refresh_tags()
         self.children.setText("\n".join(name for _, name, _ in detail["children"]) or "None")  # type: ignore[union-attr]
-        self.dependencies.setText("\n".join(name for _, name in detail["dependencies"]) or "None")  # type: ignore[union-attr]
+        self._refresh_dependencies()
         self.show()
+
+    @staticmethod
+    def _clear_layout(layout: QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+
+    def _refresh_dependencies(self) -> None:
+        if self.task_id is None:
+            return
+        data = self.queries.task_dependencies(self.task_id)
+        self._clear_layout(self.predecessors_layout)
+        self._clear_layout(self.successors_layout)
+        for task in data.predecessors:
+            row = DependencyRow(task.task_id, task.title, self._dependency_context(task),
+                                removable=True, parent=self.predecessors_widget)
+            row.remove_requested.connect(self.remove_predecessor)
+            self.predecessors_layout.addWidget(row)
+        for task in data.successors:
+            row = DependencyRow(task.task_id, task.title, self._dependency_context(task),
+                                removable=False, parent=self.successors_widget)
+            self.successors_layout.addWidget(row)
+        self.no_predecessors.setVisible(not data.predecessors)
+        self.no_successors.setVisible(not data.successors)
+        self.dependency_picker.clear()
+        self.dependency_picker.addItem("Select or search tasks…", None)
+        for task in data.add_choices:
+            self.dependency_picker.addItem(
+                f"{task.title} — {task.project_name or 'No project'} · "
+                f"{task.status.value.replace('_', ' ').title()}", str(task.task_id))
+        enabled = bool(data.add_choices)
+        self.dependency_picker.setEnabled(enabled)
+        self.add_dependency_button.setEnabled(enabled)
+
+    @staticmethod
+    def _dependency_context(task) -> str:
+        return (f"{task.project_name or 'No project'} · "
+                f"{task.status.value.replace('_', ' ').title()}")
+
+    def add_selected_dependency(self) -> None:
+        if self.task_id is None or self.dependency_picker.currentData() is None:
+            return
+        try:
+            self.service.add_dependency(UUID(self.dependency_picker.currentData()), self.task_id)
+        except (TaskValidationError, ValueError) as error:
+            self.error.setText(str(error))
+            return
+        self.error.clear()
+        self._refresh_dependencies()
+        self.saved.emit()
+
+    def remove_predecessor(self, predecessor_id: object) -> None:
+        if self.task_id is None:
+            return
+        self.service.remove_dependency(UUID(str(predecessor_id)), self.task_id)
+        self.error.clear()
+        self._refresh_dependencies()
+        self.saved.emit()
 
     def save(self) -> None:
         if self.task_id is None:
