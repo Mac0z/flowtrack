@@ -2,6 +2,7 @@
 import os
 from datetime import date, timedelta
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from PySide6.QtCore import Qt
 from sqlalchemy import create_engine
 from flowtrack.application.projects import ProjectQueryService, ProjectService
 from flowtrack.application.task_execution import TaskExecutionService
@@ -20,6 +21,14 @@ def make_services():
 def item_ids(board,status):
     column=board.columns[status]
     return [column.item(index).data(256) for index in range(column.count())]
+
+
+def test_board_columns_disable_horizontal_scrolling(application):
+    projects,queries,tasks=make_services(); board=ProjectBoard(tasks,queries)
+    assert all(
+        column.horizontalScrollBarPolicy() is Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        for column in board.columns.values()
+    )
 
 
 def test_board_has_working_columns_and_groups_same_task_ids(application):
