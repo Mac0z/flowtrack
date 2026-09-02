@@ -52,11 +52,13 @@ def test_dashboard_table_displays_compact_task_data(application):
 def test_progress_cell_centres_compact_display_without_intercepting_selection(application):
     cell = ProgressCell(45)
     progress = cell.progress_display
+    item = cell.layout().itemAt(0)
 
     assert isinstance(progress, ProgressDisplay)
     assert progress.parent() is cell
     assert progress.maximumHeight() == 18
-    assert cell.layout().alignmentOf(progress) & Qt.AlignmentFlag.AlignVCenter
+    assert item.widget() is progress
+    assert item.alignment() & Qt.AlignmentFlag.AlignVCenter
     assert cell.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
 
