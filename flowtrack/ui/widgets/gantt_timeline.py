@@ -1,4 +1,4 @@
-"""Deterministic geometry and hierarchy helpers for the read-only Gantt."""
+"""Deterministic geometry, interaction, and hierarchy helpers for the Gantt."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -37,6 +37,20 @@ class BarGeometry:
     width: float
     progress_width: float
     milestone: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DateChange:
+    """A proposed, not-yet-persisted task date change."""
+    start_date: date | None
+    due_date: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectorGeometry:
+    predecessor_id: UUID
+    successor_id: UUID
+    points: tuple[tuple[float, float], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +105,39 @@ def date_to_x(value: date, timeline: TimelineRange, zoom: GanttZoom) -> float:
     return (value - timeline.start).days * pixels_per_day(zoom)
 
 
+def x_to_date(x: float, timeline: TimelineRange, zoom: GanttZoom, *, scroll_offset: float = 0) -> date:
+    """Convert viewport X to a calendar date, including horizontal scrolling."""
+    days = round((x + scroll_offset) / pixels_per_day(zoom))
+    return timeline.start + timedelta(days=days)
+
+
+def drag_days(pixel_delta: float, zoom: GanttZoom) -> int:
+    """Snap a horizontal movement to the nearest whole calendar day."""
+    return round(pixel_delta / pixels_per_day(zoom))
+
+
+def move_task_dates(start: date | None, due: date | None, days: int) -> DateChange | None:
+    """Move every actually stored date; undated tasks cannot be moved."""
+    if start is None and due is None:
+        return None
+    delta = timedelta(days=days)
+    return DateChange(start + delta if start else None, due + delta if due else None)
+
+
+def resize_task_start(start: date | None, due: date | None, days: int) -> DateChange | None:
+    if start is None or due is None:
+        return None
+    candidate = start + timedelta(days=days)
+    return DateChange(candidate, due) if candidate <= due else None
+
+
+def resize_task_due(start: date | None, due: date | None, days: int) -> DateChange | None:
+    if start is None or due is None:
+        return None
+    candidate = due + timedelta(days=days)
+    return DateChange(start, candidate) if candidate >= start else None
+
+
 def task_bar_geometry(task: TaskRow, timeline: TimelineRange, zoom: GanttZoom) -> BarGeometry | None:
     start, due = task.start_date, task.due_date
     if start is None and due is None:
@@ -142,3 +189,33 @@ def collapsed_descendant_dates(parent: TaskRow, tasks: Sequence[TaskRow]) -> tup
             break
         descendants.extend(value for value in (task.start_date, task.due_date) if value)
     return (min(descendants), max(descendants)) if descendants else (None, None)
+
+
+def dependency_connectors(
+    tasks: Sequence[TaskRow], timeline: TimelineRange, zoom: GanttZoom, *,
+    row_height: float, header_height: float = 0, horizontal_scroll: float = 0,
+    vertical_scroll: float = 0,
+) -> list[ConnectorGeometry]:
+    """Route visible Finish-to-Start edges in viewport coordinates."""
+    by_id = {task.id: (index, task) for index, task in enumerate(tasks)}
+    connectors: list[ConnectorGeometry] = []
+    for successor_index, successor in enumerate(tasks):
+        successor_date = successor.start_date or successor.due_date
+        if successor_date is None:
+            continue
+        for predecessor_id in successor.predecessor_ids:
+            predecessor_entry = by_id.get(predecessor_id)
+            if predecessor_entry is None:
+                continue
+            predecessor_index, predecessor = predecessor_entry
+            predecessor_date = predecessor.due_date or predecessor.start_date
+            if predecessor_date is None:
+                continue
+            start_x = date_to_x(predecessor_date, timeline, zoom) + pixels_per_day(zoom) - horizontal_scroll
+            end_x = date_to_x(successor_date, timeline, zoom) - horizontal_scroll
+            start_y = header_height + (predecessor_index + .5) * row_height - vertical_scroll
+            end_y = header_height + (successor_index + .5) * row_height - vertical_scroll
+            elbow_x = max(start_x + 8, min(end_x - 8, (start_x + end_x) / 2))
+            connectors.append(ConnectorGeometry(predecessor_id, successor.id,
+                ((start_x, start_y), (elbow_x, start_y), (elbow_x, end_y), (end_x, end_y))))
+    return connectors

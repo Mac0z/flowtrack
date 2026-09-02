@@ -1,6 +1,6 @@
 """Efficient, UI-neutral read models for Dashboard and My Tasks."""
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from uuid import UUID
@@ -55,6 +55,7 @@ class TaskRow:
     tags: tuple[tuple[UUID, str], ...]; overdue: bool
     parent_task_id: UUID | None; hierarchy_depth: int
     lifecycle_changed_at: datetime | None = None
+    predecessor_ids: tuple[UUID, ...] = ()
 
 @dataclass(frozen=True, slots=True)
 class DashboardData:
@@ -85,6 +86,14 @@ class TaskQueryService:
             tasks = list(session.scalars(stmt.limit(limit)).unique())
             parent_by_id = dict(session.execute(select(Task.id, Task.parent_task_id)).all())
             rows = [self._row(task, today, self._hierarchy_depth(task.id, parent_by_id)) for task in tasks]
+            visible_ids = {row.id for row in rows}
+            predecessors: dict[UUID, list[UUID]] = {}
+            if visible_ids:
+                for predecessor_id, successor_id in session.execute(select(
+                        Dependency.predecessor_task_id, Dependency.successor_task_id
+                    ).where(Dependency.successor_task_id.in_(visible_ids))):
+                    predecessors.setdefault(successor_id, []).append(predecessor_id)
+            rows = [replace(row, predecessor_ids=tuple(predecessors.get(row.id, ()))) for row in rows]
         priority = {TaskPriority.CRITICAL: 0, TaskPriority.HIGH: 1, TaskPriority.MEDIUM: 2, TaskPriority.LOW: 3}
         historical = bool(filters.statuses) and filters.statuses <= MyTasksScope.HISTORY.statuses
         def key(row: TaskRow) -> tuple[object, ...]:

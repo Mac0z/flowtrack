@@ -220,6 +220,8 @@ class MainWindow(QMainWindow):
         if isinstance(tasks, MyTasksView): tasks.refresh()
         calendar = self.pages.get(Destination.CALENDAR)
         if isinstance(calendar, CalendarView): calendar.refresh()
+        if self.inspector.isVisible() and self.inspector.task_id is not None:
+            self.inspector.load_task(self.inspector.task_id)
 
     def open_inspector(self, task_id: object) -> None:
         self.inspector.load_task(task_id)

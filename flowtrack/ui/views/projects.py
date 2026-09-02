@@ -26,7 +26,7 @@ class ProjectsView(QWidget):
         self.tabs=QTabWidget(); self.overview=QWidget(); self.overview_layout=QVBoxLayout(self.overview); self.metrics=QLabel(); self.metrics.setTextFormat(Qt.TextFormat.RichText); self.description=QLabel(); self.description.setWordWrap(True); self.progress=ProgressDisplay(0); self.overview_layout.addWidget(self.description); self.overview_layout.addWidget(self.progress); self.overview_layout.addWidget(self.metrics); self.overview_layout.addStretch()
         list_page=QWidget(); lp=QVBoxLayout(list_page); tools=QHBoxLayout(); tools.addWidget(QLabel("Project tasks")); tools.addStretch(); add=QPushButton("+ New Task"); add.clicked.connect(self._new_task); tools.addWidget(add); lp.addLayout(tools); self.table=QTableWidget(0,7); self.table.setHorizontalHeaderLabels(["Task","Status","Priority","Owner","Start","Due","Progress"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.cellDoubleClicked.connect(self._activate_task); lp.addWidget(self.table); self.no_tasks=QLabel("No project tasks yet. Add your first task."); self.no_tasks.setAlignment(Qt.AlignmentFlag.AlignCenter); self.no_tasks.setObjectName("mutedText"); lp.addWidget(self.no_tasks)
         self.board=ProjectBoard(task_service,queries); self.board.task_activated.connect(self.task_selected); self.board.data_changed.connect(self._board_changed)
-        self.gantt=GanttView(queries); self.gantt.task_activated.connect(self.task_selected)
+        self.gantt=GanttView(queries,task_service); self.gantt.task_activated.connect(self.task_selected); self.gantt.data_changed.connect(self._gantt_changed)
         self.tabs.addTab(self.overview,"Overview"); self.tabs.addTab(list_page,"List"); self.tabs.addTab(self.board,"Board"); self.tabs.addTab(self.gantt,"Gantt"); dl.addWidget(self.tabs); self.stack.addWidget(self.detail); self.refresh()
 
     @staticmethod
@@ -77,6 +77,9 @@ class ProjectsView(QWidget):
     def _edit(self)->None:
         if self.current_project_id:self.editor.open_for_edit(self.current_project_id)
     def _board_changed(self)->None:
+        self._load_detail()
+        self.project_changed.emit()
+    def _gantt_changed(self)->None:
         self._load_detail()
         self.project_changed.emit()
     def _saved(self,project_id:object)->None:self.current_project_id=project_id; self.refresh(); self.project_changed.emit(); self.open_project(project_id)

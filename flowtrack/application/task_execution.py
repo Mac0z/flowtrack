@@ -39,6 +39,8 @@ class TaskExecutionService:
         clean_title = title.strip()
         if not clean_title:
             raise TaskValidationError("Title is required")
+        if start_date is not None and due_date is not None and start_date > due_date:
+            raise TaskValidationError("Start date cannot be later than due date")
         with transaction(self._factory) as session:
             if parent_task_id is not None:
                 parent = TaskRepository(session).get(parent_task_id)
@@ -66,6 +68,11 @@ class TaskExecutionService:
                 changes["title"] = title
             if "manual_progress" in changes and not 0 <= int(changes["manual_progress"]) <= 100:
                 raise TaskValidationError("Progress must be between 0 and 100")
+            effective_start = changes.get("start_date", task.start_date)
+            effective_due = changes.get("due_date", task.due_date)
+            if (effective_start is not None and effective_due is not None
+                    and effective_start > effective_due):
+                raise TaskValidationError("Start date cannot be later than due date")
             if "parent_task_id" in changes:
                 parent_map = dict(session.execute(select(Task.id, Task.parent_task_id)).all())
                 ensure_valid_parent(task_id, changes["parent_task_id"], parent_map)  # type: ignore[arg-type]
