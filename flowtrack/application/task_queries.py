@@ -1,7 +1,8 @@
 """Efficient, UI-neutral read models for Dashboard and My Tasks."""
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from enum import StrEnum
 from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
@@ -15,6 +16,26 @@ from flowtrack.domain.services import (
 from flowtrack.persistence.models import Dependency, Owner, Project, Tag, Task
 
 DUE_SOON_DAYS = 7
+
+
+class MyTasksScope(StrEnum):
+    """Lifecycle scopes available to the My Tasks execution view."""
+
+    ACTIVE = "active"
+    HISTORY = "history"
+
+    @property
+    def statuses(self) -> frozenset[TaskStatus]:
+        if self is MyTasksScope.ACTIVE:
+            return frozenset(
+                {
+                    TaskStatus.NOT_STARTED,
+                    TaskStatus.IN_PROGRESS,
+                    TaskStatus.BLOCKED,
+                    TaskStatus.WAITING,
+                }
+            )
+        return frozenset({TaskStatus.COMPLETE, TaskStatus.CANCELLED})
 
 @dataclass(frozen=True, slots=True)
 class TaskFilters:
@@ -33,6 +54,7 @@ class TaskRow:
     due_date: date | None; start_date: date | None; progress: float; sort_order: int
     tags: tuple[tuple[UUID, str], ...]; overdue: bool
     parent_task_id: UUID | None; hierarchy_depth: int
+    lifecycle_changed_at: datetime | None = None
 
 @dataclass(frozen=True, slots=True)
 class DashboardData:
@@ -64,7 +86,12 @@ class TaskQueryService:
             parent_by_id = dict(session.execute(select(Task.id, Task.parent_task_id)).all())
             rows = [self._row(task, today, self._hierarchy_depth(task.id, parent_by_id)) for task in tasks]
         priority = {TaskPriority.CRITICAL: 0, TaskPriority.HIGH: 1, TaskPriority.MEDIUM: 2, TaskPriority.LOW: 3}
+        historical = bool(filters.statuses) and filters.statuses <= MyTasksScope.HISTORY.statuses
         def key(row: TaskRow) -> tuple[object, ...]:
+            if historical:
+                # SQLite timestamps are available already; no schema change is needed.
+                changed_at = row.lifecycle_changed_at
+                return (-(changed_at.timestamp()) if changed_at else 0, row.id.hex)
             active = row.status not in (TaskStatus.COMPLETE, TaskStatus.CANCELLED)
             due_soon = active and row.due_date is not None and today <= row.due_date <= today + timedelta(days=DUE_SOON_DAYS)
             return (not row.overdue, not due_soon, priority[row.priority], row.sort_order, row.id.hex)
@@ -150,7 +177,7 @@ class TaskQueryService:
             task.owner.name if task.owner else None, task.due_date, task.start_date,
             calculate_task_progress(task), task.sort_order, tuple((t.id, t.name) for t in task.tags),
             is_overdue(due_date=task.due_date, status=task.status, today=today),
-            task.parent_task_id, hierarchy_depth)
+            task.parent_task_id, hierarchy_depth, task.completed_at or task.updated_at)
 
     def owners(self, active_only: bool = False) -> list[tuple[UUID, str, bool]]:
         with self._factory() as s:
