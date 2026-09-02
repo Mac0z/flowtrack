@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from PySide6.QtCore import Qt
 from flowtrack.ui.views.dashboard import DashboardView
+from flowtrack.ui.widgets import ProgressCell, ProgressDisplay
 
 
 class _DashboardQueries:
@@ -40,10 +41,23 @@ def test_dashboard_table_displays_compact_task_data(application):
     assert dashboard.task_table.rowCount() == 1
     assert dashboard.task_table.item(0, 0).text() == "Prepare project update 1"
     assert dashboard.task_table.item(0, 1).text() == "Wed 02 Sep"
-    assert dashboard.task_table.item(0, 2).text() == "45%"
+    progress_cell = dashboard.task_table.cellWidget(0, 2)
+    assert isinstance(progress_cell, ProgressCell)
+    assert progress_cell.progress_display.value() == 45
     assert dashboard.task_table.item(0, 0).data(Qt.ItemDataRole.UserRole) == str(task_id)
     assert dashboard.task_table.verticalHeader().defaultSectionSize() == dashboard.TASK_ROW_MINIMUM_HEIGHT
     assert dashboard.task_table.editTriggers() == dashboard.task_table.EditTrigger.NoEditTriggers
+
+
+def test_progress_cell_centres_compact_display_without_intercepting_selection(application):
+    cell = ProgressCell(45)
+    progress = cell.progress_display
+
+    assert isinstance(progress, ProgressDisplay)
+    assert progress.parent() is cell
+    assert progress.maximumHeight() == 18
+    assert cell.layout().alignmentOf(progress) & Qt.AlignmentFlag.AlignVCenter
+    assert cell.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
 
 def test_dashboard_selection_and_activation_use_normal_full_rows(application):

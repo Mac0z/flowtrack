@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from flowtrack.application.task_queries import TaskQueryService
-from flowtrack.ui.widgets import CommandField, SectionHeading, SurfaceCard
+from flowtrack.ui.widgets import CommandField, ProgressCell, SectionHeading, SurfaceCard
 
 class DashboardView(QWidget):
     TASK_ROW_MINIMUM_HEIGHT = 34
@@ -41,11 +41,12 @@ class DashboardView(QWidget):
         for key,label in self.kpis.items(): label.setText(str(getattr(data,key)))
         self.task_table.setRowCount(len(data.due_this_week))
         for table_row, row in enumerate(data.due_this_week):
-            values = (row.title, row.due_date.strftime("%a %d %b"), f"{row.progress:.0f}%")
+            values = (row.title, row.due_date.strftime("%a %d %b"), "")
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, str(row.id))
                 self.task_table.setItem(table_row, column, item)
+            self.task_table.setCellWidget(table_row, 2, ProgressCell(row.progress))
         self.task_table.setVisible(bool(data.due_this_week))
         self.empty.setVisible(not data.due_this_week); self.project_list.clear()
         for _,name,progress,count,due in data.projects: self.project_list.addItem(f"{name}   {progress:.0f}%  ·  {count} tasks" + (f"  ·  {due:%d %b}" if due else ""))

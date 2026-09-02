@@ -13,7 +13,7 @@ from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.ui.dialogs.project_editor import ProjectEditorDialog
 from flowtrack.ui.theme import get_theme
 from flowtrack.ui.theme.status import status_color
-from flowtrack.ui.widgets import ProgressDisplay, SectionHeading, SurfaceCard
+from flowtrack.ui.widgets import ProgressCell, ProgressDisplay, SectionHeading, SurfaceCard
 
 class ProjectsView(QWidget):
     task_selected=Signal(object); project_changed=Signal(); new_task_requested=Signal(object)
@@ -57,7 +57,8 @@ class ProjectsView(QWidget):
                 if c==1:item.setForeground(QColor(status_color(self.theme,row.status)))
                 elif row.status in (TaskStatus.COMPLETE,TaskStatus.CANCELLED):item.setForeground(QColor(self.theme.colors.text_muted))
                 self.table.setItem(r,c,item)
-            self.table.setCellWidget(r,6,ProgressDisplay(row.progress))
+            progress_item=QTableWidgetItem(); progress_item.setData(Qt.ItemDataRole.UserRole,row.id); self.table.setItem(r,6,progress_item)
+            self.table.setCellWidget(r,6,ProgressCell(row.progress))
         self.table.resizeColumnsToContents()
     def _activate_task(self,row:int,_column:int)->None:self.task_selected.emit(self.table.item(row,0).data(Qt.ItemDataRole.UserRole))
     def _new_task(self)->None:

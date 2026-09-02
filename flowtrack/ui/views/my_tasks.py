@@ -7,7 +7,7 @@ from flowtrack.application.task_execution import TaskExecutionService, TaskValid
 from flowtrack.application.task_queries import TaskFilters, TaskQueryService
 from flowtrack.domain.enums import TaskPriority, TaskStatus
 from flowtrack.infrastructure.settings import ApplicationSettings
-from flowtrack.ui.widgets import ProgressDisplay, SectionHeading
+from flowtrack.ui.widgets import ProgressCell, SectionHeading
 from flowtrack.ui.theme.dark import DARK_THEME
 from flowtrack.ui.theme.status import status_color
 
@@ -58,7 +58,10 @@ class MyTasksView(QWidget):
                 elif row.status in (TaskStatus.COMPLETE, TaskStatus.CANCELLED):
                     item.setForeground(QColor(DARK_THEME.colors.text_muted))
                 self.table.setItem(r,c,item)
-            self.table.setCellWidget(r, 7, ProgressDisplay(row.progress))
+            progress_item = QTableWidgetItem()
+            progress_item.setData(Qt.ItemDataRole.UserRole, row.id)
+            self.table.setItem(r, 7, progress_item)
+            self.table.setCellWidget(r, 7, ProgressCell(row.progress))
         self.table.resizeColumnsToContents(); self.settings.my_tasks_filters={"status":str(self.status.currentData()) if self.status.currentData() else None,"priority":str(self.priority.currentData()) if self.priority.currentData() else None,"project":str(self.project.currentData()) if self.project.currentData() else None,"owner":str(self.owner.currentData()) if self.owner.currentData() else None,"tag":str(self.tag.currentData()) if self.tag.currentData() else None,"date":self.date_window.currentData()}
     def _clicked(self,row:int,column:int)->None:
         if column==0:
