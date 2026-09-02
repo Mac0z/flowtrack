@@ -40,6 +40,20 @@ QListWidget::item:selected:hover {{ background: {c.surface_selected}; }}
 QTableWidget {{ background: {c.surface_primary}; border: 1px solid {c.border_subtle}; gridline-color: {c.divider}; selection-background-color: {c.surface_selected}; }}
 QHeaderView::section {{ background: {c.surface_secondary}; color: {c.text_secondary}; border: 0; border-bottom: 1px solid {c.border_subtle}; padding: 7px; }}
 QComboBox, QDateEdit, QPlainTextEdit, QSpinBox {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; padding: 6px; }}
+QCalendarWidget {{ background: {c.surface_elevated}; color: {c.text_primary}; border: 1px solid {c.border_subtle}; }}
+QCalendarWidget QWidget#qt_calendar_navigationbar {{ background: {c.surface_secondary}; border-bottom: 1px solid {c.border_subtle}; }}
+QCalendarWidget QToolButton {{ background: transparent; color: {c.text_primary}; border: 0; border-radius: {r.sm}px; padding: {s.sm}px; }}
+QCalendarWidget QToolButton:hover {{ background: {c.surface_hover}; }}
+QCalendarWidget QToolButton:pressed {{ background: {c.surface_selected}; }}
+QCalendarWidget QToolButton:focus {{ border: 1px solid {c.focus}; }}
+QCalendarWidget QToolButton:disabled {{ color: {c.disabled}; }}
+QCalendarWidget QSpinBox#qt_calendar_yearedit {{ background: {c.surface_elevated}; color: {c.text_primary}; selection-background-color: {c.accent}; selection-color: {c.text_primary}; }}
+QCalendarWidget QMenu {{ background: {c.surface_elevated}; color: {c.text_primary}; border: 1px solid {c.border_subtle}; }}
+QCalendarWidget QMenu::item:selected {{ background: {c.surface_selected}; color: {c.text_primary}; }}
+QCalendarWidget QAbstractItemView {{ background: {c.surface_primary}; alternate-background-color: {c.surface_secondary}; color: {c.text_primary}; selection-background-color: {c.accent}; selection-color: {c.text_primary}; outline: 0; }}
+QCalendarWidget QAbstractItemView::item:hover {{ background: {c.surface_hover}; color: {c.text_primary}; }}
+QCalendarWidget QAbstractItemView::item:focus {{ border: 1px solid {c.focus}; }}
+QCalendarWidget QAbstractItemView::item:disabled {{ color: {c.disabled}; }}
 QProgressBar {{ border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; background: {c.surface_secondary}; text-align: center; }}
 QProgressBar::chunk {{ background: {c.accent}; border-radius: {r.sm}px; }}
 QWidget#tagChip {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; }}
