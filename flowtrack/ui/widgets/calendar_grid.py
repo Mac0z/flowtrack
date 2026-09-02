@@ -9,7 +9,9 @@ from uuid import UUID
 
 from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt, Signal
 from PySide6.QtGui import QDrag
-from PySide6.QtWidgets import QAbstractItemView, QFrame, QGridLayout, QLabel, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QAbstractItemView, QDialog, QFrame, QGridLayout, QLabel,
+                               QListWidget, QListWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QSizePolicy
 
 from flowtrack.application.task_queries import TaskRow
 from flowtrack.domain.enums import TaskPriority, TaskStatus
@@ -18,6 +20,7 @@ from flowtrack.ui.theme import get_theme
 from flowtrack.ui.theme.status import status_color
 
 TASK_DATE_MIME_TYPE = "application/x-flowtrack-calendar-task"
+OVERFLOW_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class CalendarMode(StrEnum):
@@ -50,8 +53,28 @@ class CalendarTaskList(QListWidget):
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setSpacing(3)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.itemClicked.connect(lambda item: self.task_activated.emit(item.data(Qt.ItemDataRole.UserRole)))
-        self.itemDoubleClicked.connect(lambda item: self.task_activated.emit(item.data(Qt.ItemDataRole.UserRole)))
+        self.itemClicked.connect(self._activate_item)
+        self.itemDoubleClicked.connect(self._activate_item)
+
+    def _activate_item(self, item: QListWidgetItem) -> None:
+        task_id = item.data(Qt.ItemDataRole.UserRole)
+        if task_id is not None:
+            self.task_activated.emit(task_id)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.update_item_widths()
+
+    def update_item_widths(self) -> None:
+        """Keep item widgets tied to the live viewport, not stale size hints."""
+        width = max(1, self.viewport().width() - 2)
+        for index in range(self.count()):
+            item = self.item(index)
+            hint = item.sizeHint()
+            item.setSizeHint(QSize(width, hint.height()))
+            widget = self.itemWidget(item)
+            if widget is not None:
+                widget.setFixedWidth(width)
 
     def startDrag(self, _actions: Qt.DropAction) -> None:
         item = self.currentItem()
@@ -97,6 +120,8 @@ class CalendarTaskChip(QFrame):
         super().__init__(parent)
         theme = get_theme(ApplicationSettings().theme_id)
         self.setObjectName("calendarTaskChip")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(54 if roomy else 36)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(7, 4, 7, 4)
         layout.setSpacing(1)
@@ -117,6 +142,47 @@ class CalendarTaskChip(QFrame):
         )
 
 
+class CalendarOverflowDialog(QDialog):
+    """Compact list of tasks that do not fit directly in a month cell."""
+
+    task_activated = Signal(object)
+
+    def __init__(self, day: date, tasks: list[TaskRow], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(day.strftime("Tasks due %d %b %Y"))
+        self.setModal(False)
+        self.resize(360, min(420, 90 + 60 * len(tasks)))
+        layout = QVBoxLayout(self)
+        heading = QLabel(day.strftime("Tasks due %d %b %Y"))
+        heading.setObjectName("sectionTitle")
+        layout.addWidget(heading)
+        self.task_list = CalendarTaskList(None, lambda _task_id, _day: False)
+        self.task_list.task_activated.connect(self._activate)
+        layout.addWidget(self.task_list)
+        for task in tasks:
+            add_task_item(self.task_list, task, roomy=True)
+
+    @property
+    def task_ids(self) -> list[UUID]:
+        return [self.task_list.item(index).data(Qt.ItemDataRole.UserRole)
+                for index in range(self.task_list.count())]
+
+    def _activate(self, task_id: UUID) -> None:
+        self.task_activated.emit(task_id)
+        self.accept()
+
+
+def add_task_item(task_list: CalendarTaskList, task: TaskRow, *, roomy: bool) -> QListWidgetItem:
+    """Add a correctly-sized chip while retaining its real task identifier."""
+    item = QListWidgetItem()
+    item.setData(Qt.ItemDataRole.UserRole, task.id)
+    item.setSizeHint(QSize(max(1, task_list.viewport().width() - 2), 58 if roomy else 40))
+    task_list.addItem(item)
+    task_list.setItemWidget(item, CalendarTaskChip(task, roomy=roomy))
+    task_list.update_item_widths()
+    return item
+
+
 class CalendarGrid(QWidget):
     """Normal seven-column calendar grid, independent of persistence."""
 
@@ -128,6 +194,7 @@ class CalendarGrid(QWidget):
         self.mode = CalendarMode.MONTH
         self.anchor = month_start(date.today())
         self.cells: dict[date, CalendarTaskList] = {}
+        self.overflow_dialogs: dict[date, CalendarOverflowDialog] = {}
         self._layout = QGridLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(1)
@@ -140,6 +207,7 @@ class CalendarGrid(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         self.cells.clear()
+        self.overflow_dialogs.clear()
         first = week_start(month_start(anchor)) if mode is CalendarMode.MONTH else week_start(anchor)
         weeks = 6 if mode is CalendarMode.MONTH else 1
         by_date: dict[date, list[TaskRow]] = {}
@@ -171,15 +239,18 @@ class CalendarGrid(QWidget):
             visible = by_date.get(cell_date, [])
             limit = 3 if mode is CalendarMode.MONTH else len(visible)
             for task in visible[:limit]:
-                item = QListWidgetItem()
-                item.setData(Qt.ItemDataRole.UserRole, task.id)
-                item.setSizeHint(QSize(0, 40 if mode is CalendarMode.MONTH else 58))
-                task_list.addItem(item)
-                task_list.setItemWidget(item, CalendarTaskChip(task, roomy=mode is CalendarMode.WEEK))
+                add_task_item(task_list, task, roomy=mode is CalendarMode.WEEK)
             if len(visible) > limit:
                 more = QListWidgetItem(f"+{len(visible) - limit} more")
-                more.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                more.setData(OVERFLOW_ROLE, cell_date)
+                more.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                more.setSizeHint(QSize(max(1, task_list.viewport().width() - 2), 28))
                 task_list.addItem(more)
+                hidden = visible[limit:]
+                task_list.itemClicked.connect(
+                    lambda item, day=cell_date, tasks=hidden:
+                    self._show_overflow(day, tasks) if item.data(OVERFLOW_ROLE) else None
+                )
             cell_layout.addWidget(task_list, 1)
             self.cells[cell_date] = task_list
             self._layout.addWidget(frame, 1 + offset // 7, offset % 7)
@@ -187,3 +258,10 @@ class CalendarGrid(QWidget):
             self._layout.setColumnStretch(column, 1)
         for row in range(1, weeks + 1):
             self._layout.setRowStretch(row, 1)
+
+    def _show_overflow(self, day: date, tasks: list[TaskRow]) -> CalendarOverflowDialog:
+        dialog = CalendarOverflowDialog(day, tasks, self)
+        dialog.task_activated.connect(self.task_activated)
+        self.overflow_dialogs[day] = dialog
+        dialog.show()
+        return dialog

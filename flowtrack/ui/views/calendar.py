@@ -4,14 +4,14 @@ from __future__ import annotations
 from datetime import date, timedelta
 from uuid import UUID
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from flowtrack.application.task_execution import TaskExecutionService
 from flowtrack.application.task_queries import MyTasksScope, TaskFilters, TaskQueryService, TaskRow
 from flowtrack.domain.enums import TaskPriority, TaskStatus
-from flowtrack.ui.widgets.calendar_grid import CalendarGrid, CalendarMode, CalendarTaskChip, CalendarTaskList, month_start, week_start
+from flowtrack.ui.widgets.calendar_grid import CalendarGrid, CalendarMode, CalendarTaskList, add_task_item, month_start, week_start
 
 
 class CalendarView(QWidget):
@@ -101,8 +101,7 @@ class CalendarView(QWidget):
         self.grid.render(self._rows, anchor=self.anchor, mode=self.mode)
         self.unscheduled.clear()
         for task in (row for row in self._rows if row.due_date is None):
-            item = QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole, task.id); item.setSizeHint(CalendarTaskChip(task, roomy=True).sizeHint())
-            self.unscheduled.addItem(item); self.unscheduled.setItemWidget(item, CalendarTaskChip(task, roomy=True))
+            add_task_item(self.unscheduled, task, roomy=True)
         self._update_heading()
 
     def _update_heading(self) -> None:
@@ -134,10 +133,12 @@ class CalendarView(QWidget):
         self.refresh()
 
     def confirm_date_change(self, task: TaskRow, new_date: date) -> bool:
-        answer = QMessageBox.question(self, "Move task due date?", f"Move {task.title} due date to {new_date:%d %b %Y}?",
-                                      QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-                                      QMessageBox.StandardButton.Cancel)
-        return answer is QMessageBox.StandardButton.Ok
+        dialog = QMessageBox(QMessageBox.Icon.Question, "Move task due date?",
+                             f"Move {task.title} due date to {new_date:%d %b %Y}?", parent=self)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(QMessageBox.StandardButton.Ok)
+        dialog.setEscapeButton(QMessageBox.StandardButton.Cancel)
+        return QMessageBox.StandardButton(dialog.exec()) == QMessageBox.StandardButton.Ok
 
     def request_date_change(self, task_id: UUID, new_date: date) -> bool:
         task = next((row for row in self._rows if row.id == task_id), None)
