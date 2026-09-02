@@ -59,6 +59,9 @@ class MainWindow(QMainWindow):
         self.inspector = TaskInspector(self.task_service, self.task_queries)
         self.inspector.deleted.connect(self._delete_inspected_task)
         self.quick_capture = QuickCaptureDialog(self.task_service, self.task_queries, self)
+        # The dialog is shared by every capture entry point, so its successful
+        # creation signal has one application-wide refresh path.
+        self.quick_capture.task_created.connect(self._task_created)
         self.people_tags = PeopleTagsDialog(self.task_service, self.task_queries, self)
         self._build_shell()
         self._build_actions()
@@ -177,12 +180,10 @@ class MainWindow(QMainWindow):
         self.settings.last_destination = destination.value
 
     def open_quick_task(self) -> None:
-        try: self.quick_capture.task_created.disconnect(self._task_created)
-        except RuntimeError: pass
-        self.quick_capture.task_created.connect(self._task_created); self.quick_capture.open()
+        self.quick_capture.open()
 
     def _task_created(self, task_id: object) -> None:
-        self.refresh_execution_views(); self.refresh_project_views()
+        self.refresh_project_views()
 
     def open_project_task(self, project_id: object) -> None:
         self.quick_capture.open_for_project(project_id)

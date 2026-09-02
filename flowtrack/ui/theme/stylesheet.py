@@ -24,6 +24,11 @@ QPushButton:disabled {{ color: {c.disabled}; }}
 QPushButton#navItem {{ text-align: left; border: 0; background: transparent; padding: 10px 12px; }}
 QPushButton#navItem:hover {{ background: {c.surface_hover}; }}
 QPushButton#navItem:checked {{ background: {c.surface_selected}; color: {c.text_primary}; border-left: 3px solid {c.accent}; }}
+QTabWidget::pane {{ background: {c.surface_primary}; border: 1px solid {c.border_subtle}; border-radius: {r.md}px; top: -1px; }}
+QTabBar::tab {{ background: {c.surface_secondary}; color: {c.text_secondary}; border: 1px solid {c.border_subtle}; padding: {s.sm}px {s.lg}px; }}
+QTabBar::tab:selected {{ background: {c.surface_selected}; color: {c.text_primary}; border-bottom: 2px solid {c.accent}; }}
+QTabBar::tab:hover:!selected {{ background: {c.surface_hover}; color: {c.text_primary}; }}
+QTabBar::tab:disabled {{ color: {c.disabled}; }}
 QLineEdit {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.md}px; padding: 9px 12px; selection-background-color: {c.accent}; }}
 QDialog {{ background: {c.surface_elevated}; }}
 QListWidget {{ background: transparent; border: 0; outline: 0; }}
