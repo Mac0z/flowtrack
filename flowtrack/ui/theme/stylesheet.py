@@ -31,6 +31,7 @@ QTabBar::tab:hover:!selected {{ background: {c.surface_hover}; color: {c.text_pr
 QTabBar::tab:disabled {{ color: {c.disabled}; }}
 QLineEdit {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.md}px; padding: 9px 12px; selection-background-color: {c.accent}; }}
 QDialog {{ background: {c.surface_elevated}; }}
+QDialog QLabel {{ background: transparent; }}
 QListWidget {{ background: transparent; border: 0; outline: 0; }}
 QListWidget::item {{ padding: 10px; border-radius: {r.sm}px; }}
 QListWidget::item:hover {{ background: {c.surface_hover}; }}
