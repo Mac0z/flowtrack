@@ -197,7 +197,10 @@ class TaskQueryService:
         successors = sorted((row(by_id[item]) for item in successor_ids if item in by_id), key=order)
         choices = sorted((row(task) for task in tasks
                           if task.id != task_id and task.id not in predecessor_ids
-                          and task.status is not TaskStatus.CANCELLED), key=order)
+                          and task.status not in {
+                              TaskStatus.COMPLETE,
+                              TaskStatus.CANCELLED,
+                          }), key=order)
         return TaskDependencyData(tuple(predecessors), tuple(successors), tuple(choices))
 
     def dashboard(self, *, today: date | None = None) -> DashboardData:
