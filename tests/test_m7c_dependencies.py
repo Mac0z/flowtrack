@@ -56,26 +56,98 @@ def test_dependency_read_model_has_context_and_filtered_choices(services):
 
     project_id = ProjectService(commands._factory).create_project("Launch")
     predecessor = commands.create_task("Approval", project_id=project_id)
+    completed_predecessor = commands.create_task("Completed approval", project_id=project_id)
     current = commands.create_task("Build", project_id=project_id)
     successor = commands.create_task("Release")
-    available = commands.create_task("Research")
-    cancelled = commands.create_task("Discarded")
-    commands.update_task(cancelled, status=TaskStatus.CANCELLED)
+    available_by_status = {
+        status: commands.create_task(status.value)
+        for status in (
+            TaskStatus.NOT_STARTED,
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.BLOCKED,
+            TaskStatus.WAITING,
+            TaskStatus.COMPLETE,
+            TaskStatus.CANCELLED,
+        )
+    }
+    for status, task_id in available_by_status.items():
+        commands.update_task(task_id, status=status)
     commands.add_dependency(predecessor, current)
+    commands.add_dependency(completed_predecessor, current)
     commands.add_dependency(current, successor)
+    commands.update_task(completed_predecessor, status=TaskStatus.COMPLETE)
+    commands.update_task(successor, status=TaskStatus.COMPLETE)
 
     data = queries.task_dependencies(current)
 
     assert [(row.task_id, row.title, row.project_name) for row in data.predecessors] == [
-        (predecessor, "Approval", "Launch")]
+        (predecessor, "Approval", "Launch"),
+        (completed_predecessor, "Completed approval", "Launch"),
+    ]
     assert [(row.task_id, row.title, row.project_name) for row in data.successors] == [
         (successor, "Release", None)]
     choice_ids = {row.task_id for row in data.add_choices}
-    assert available in choice_ids
-    assert successor in choice_ids
+    for status in (
+        TaskStatus.NOT_STARTED,
+        TaskStatus.IN_PROGRESS,
+        TaskStatus.BLOCKED,
+        TaskStatus.WAITING,
+    ):
+        assert available_by_status[status] in choice_ids
+    assert available_by_status[TaskStatus.COMPLETE] not in choice_ids
+    assert available_by_status[TaskStatus.CANCELLED] not in choice_ids
     assert current not in choice_ids
     assert predecessor not in choice_ids
-    assert cancelled not in choice_ids
+    assert data.predecessors[1].status is TaskStatus.COMPLETE
+    assert data.successors[0].status is TaskStatus.COMPLETE
+
+
+def test_dependency_connector_strokes_path_and_fills_only_arrowhead():
+    from uuid import uuid4
+
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor
+
+    from flowtrack.ui.widgets.gantt_timeline import ConnectorGeometry
+    from flowtrack.ui.widgets.gantt_view import paint_dependency_connector
+
+    class RecordingPainter:
+        def __init__(self):
+            self.brush = None
+            self.path_brush = None
+            self.arrow_brush = None
+            self.saved = 0
+            self.restored = 0
+
+        def save(self):
+            self.saved += 1
+
+        def restore(self):
+            self.restored += 1
+
+        def setPen(self, _pen):
+            pass
+
+        def setBrush(self, brush):
+            self.brush = brush
+
+        def drawPath(self, _path):
+            self.path_brush = self.brush
+
+        def drawPolygon(self, _polygon):
+            self.arrow_brush = self.brush
+
+    painter = RecordingPainter()
+    colour = QColor("#778899")
+    connector = ConnectorGeometry(uuid4(), uuid4(), ((10.0, 12.0), (20.0, 12.0), (20.0, 30.0)))
+
+    paint_dependency_connector(painter, connector, colour)
+
+    assert painter.path_brush is Qt.BrushStyle.NoBrush
+    assert painter.arrow_brush == colour
+    assert painter.brush is Qt.BrushStyle.NoBrush
+    assert (painter.saved, painter.restored) == (1, 1)
 
 
 def test_inspector_add_remove_order_refresh_and_signal(application, services):

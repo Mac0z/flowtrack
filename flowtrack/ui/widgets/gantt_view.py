@@ -21,7 +21,7 @@ from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.ui.theme import get_theme
 from flowtrack.ui.theme.status import status_color
 from flowtrack.ui.widgets.gantt_timeline import (
-    DateChange, GanttZoom, TimelineRange, calculate_timeline_range, collapsed_descendant_dates,
+    ConnectorGeometry, DateChange, GanttZoom, TimelineRange, calculate_timeline_range, collapsed_descendant_dates,
     date_to_x, day_header_labels, day_header_month_segments, dependency_connectors, drag_days,
     move_task_dates, parent_ids, pixels_per_day, resize_task_due, resize_task_start,
     task_bar_geometry, visible_hierarchy,
@@ -33,6 +33,32 @@ DAY_HEADER_HEIGHT = 66
 MILESTONE_SIZE = 7
 DRAG_THRESHOLD = 4
 EDGE_HIT_WIDTH = 6
+
+
+def paint_dependency_connector(
+    painter: QPainter, connector: ConnectorGeometry, connector_colour: QColor,
+) -> None:
+    """Stroke one routed connector and fill only its successor arrowhead."""
+    painter.save()
+    connector_pen = QPen(connector_colour, 1.5)
+    painter.setPen(connector_pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    path = QPainterPath()
+    first = connector.points[0]
+    path.moveTo(*first)
+    for point in connector.points[1:]:
+        path.lineTo(*point)
+    painter.drawPath(path)
+
+    end_x, end_y = connector.points[-1]
+    painter.setBrush(connector_colour)
+    painter.drawPolygon(QPolygonF([
+        QPointF(end_x, end_y),
+        QPointF(end_x - 6, end_y - 4),
+        QPointF(end_x - 6, end_y + 4),
+    ]))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.restore()
 
 
 def task_tooltip(task: TaskRow) -> str:
@@ -206,16 +232,11 @@ class GanttTimeline(QAbstractScrollArea):
                     painter.drawLine(int(x + 2), int(centre_y - 6), int(x + 2), int(centre_y + 6))
                     painter.drawLine(int(x + geometry.width - 2), int(centre_y - 6), int(x + geometry.width - 2), int(centre_y + 6))
         # Dependencies are painted as one lightweight overlay and only for visible rows.
-        connector_pen = QPen(QColor(colors.text_muted), 1.5)
-        painter.setPen(connector_pen); painter.setBrush(QColor(colors.text_muted))
+        connector_colour = QColor(colors.text_muted)
         for connector in dependency_connectors(self.rows, self.timeline_range, self.zoom,
                 row_height=ROW_HEIGHT, header_height=header_height,
                 horizontal_scroll=horizontal, vertical_scroll=vertical):
-            path = QPainterPath(); first = connector.points[0]; path.moveTo(*first)
-            for point in connector.points[1:]: path.lineTo(*point)
-            painter.drawPath(path)
-            end_x, end_y = connector.points[-1]
-            painter.drawPolygon(QPolygonF([QPointF(end_x, end_y), QPointF(end_x-6, end_y-4), QPointF(end_x-6, end_y+4)]))
+            paint_dependency_connector(painter, connector, connector_colour)
         # Calendar grid and today marker are deliberately drawn over row backgrounds.
         step = {GanttZoom.DAY: 1, GanttZoom.WEEK: 7, GanttZoom.MONTH: 1}[self.zoom]
         cursor = self.timeline_range.start
