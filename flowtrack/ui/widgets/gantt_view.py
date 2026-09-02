@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from uuid import UUID
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QButtonGroup, QFrame, QHeaderView,
     QHBoxLayout, QLabel, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
@@ -21,11 +21,13 @@ from flowtrack.ui.theme import get_theme
 from flowtrack.ui.theme.status import status_color
 from flowtrack.ui.widgets.gantt_timeline import (
     GanttZoom, TimelineRange, calculate_timeline_range, collapsed_descendant_dates,
-    date_to_x, parent_ids, pixels_per_day, task_bar_geometry, visible_hierarchy,
+    date_to_x, day_header_labels, day_header_month_segments, parent_ids,
+    pixels_per_day, task_bar_geometry, visible_hierarchy,
 )
 
 ROW_HEIGHT = 38
 HEADER_HEIGHT = 42
+DAY_HEADER_HEIGHT = 66
 MILESTONE_SIZE = 7
 
 
@@ -56,14 +58,18 @@ class GanttTimeline(QAbstractScrollArea):
         self.horizontalScrollBar().valueChanged.connect(self.viewport().update)
         self.verticalScrollBar().valueChanged.connect(self.viewport().update)
 
+    @property
+    def header_height(self) -> int:
+        return DAY_HEADER_HEIGHT if self.zoom is GanttZoom.DAY else HEADER_HEIGHT
+
     def set_rows(self, rows: list[TaskRow], timeline_range: TimelineRange, zoom: GanttZoom) -> None:
         self.rows, self.timeline_range, self.zoom = list(rows), timeline_range, zoom
         self.has_dated_work = any(row.start_date or row.due_date for row in rows)
         content_width = max(1, int(timeline_range.days * pixels_per_day(zoom)))
         self.horizontalScrollBar().setRange(0, max(0, content_width - self.viewport().width()))
         content_height = len(rows) * ROW_HEIGHT
-        self.verticalScrollBar().setRange(0, max(0, content_height - (self.viewport().height() - HEADER_HEIGHT)))
-        self.verticalScrollBar().setPageStep(max(ROW_HEIGHT, self.viewport().height() - HEADER_HEIGHT))
+        self.verticalScrollBar().setRange(0, max(0, content_height - (self.viewport().height() - self.header_height)))
+        self.verticalScrollBar().setPageStep(max(ROW_HEIGHT, self.viewport().height() - self.header_height))
         self.viewport().update()
 
     def resizeEvent(self, event) -> None:
@@ -71,9 +77,9 @@ class GanttTimeline(QAbstractScrollArea):
         self.set_rows(self.rows, self.timeline_range, self.zoom)
 
     def _row_at(self, position: QPoint) -> TaskRow | None:
-        if position.y() < HEADER_HEIGHT:
+        if position.y() < self.header_height:
             return None
-        index = (position.y() - HEADER_HEIGHT + self.verticalScrollBar().value()) // ROW_HEIGHT
+        index = (position.y() - self.header_height + self.verticalScrollBar().value()) // ROW_HEIGHT
         return self.rows[index] if 0 <= index < len(self.rows) else None
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -98,11 +104,12 @@ class GanttTimeline(QAbstractScrollArea):
         colors = self.theme.colors; width = self.viewport().width(); height = self.viewport().height()
         painter.fillRect(self.viewport().rect(), QColor(colors.surface_primary))
         horizontal = self.horizontalScrollBar().value(); vertical = self.verticalScrollBar().value()
-        painter.save(); painter.setClipRect(0, HEADER_HEIGHT, width, height - HEADER_HEIGHT)
+        header_height = self.header_height
+        painter.save(); painter.setClipRect(0, header_height, width, height - header_height)
         # Alternating rows and deterministic date separators.
         for index, task in enumerate(self.rows):
-            y = HEADER_HEIGHT + index * ROW_HEIGHT - vertical
-            if y + ROW_HEIGHT < HEADER_HEIGHT or y > height: continue
+            y = header_height + index * ROW_HEIGHT - vertical
+            if y + ROW_HEIGHT < header_height or y > height: continue
             if index % 2: painter.fillRect(0, y, width, ROW_HEIGHT, QColor(colors.surface_secondary))
             painter.setPen(QPen(QColor(colors.divider), 1)); painter.drawLine(0, y + ROW_HEIGHT - 1, width, y + ROW_HEIGHT - 1)
             geometry = task_bar_geometry(task, self.timeline_range, self.zoom)
@@ -129,28 +136,64 @@ class GanttTimeline(QAbstractScrollArea):
                         self.zoom is GanttZoom.MONTH and cursor.day == 1)
             if boundary:
                 x = date_to_x(cursor, self.timeline_range, self.zoom) - horizontal
-                painter.setPen(QPen(QColor(colors.divider), 1)); painter.drawLine(int(x), HEADER_HEIGHT, int(x), height)
+                painter.setPen(QPen(QColor(colors.divider), 1)); painter.drawLine(int(x), header_height, int(x), height)
             cursor += timedelta(days=step)
         today_x = date_to_x(date.today(), self.timeline_range, self.zoom) - horizontal
-        painter.setPen(QPen(QColor(colors.accent_hover), 2)); painter.drawLine(int(today_x), HEADER_HEIGHT, int(today_x), height)
+        painter.setPen(QPen(QColor(colors.accent_hover), 2)); painter.drawLine(int(today_x), header_height, int(today_x), height)
         painter.restore()
         # Fixed header is painted last so neither scrollbar moves it vertically.
-        painter.fillRect(0, 0, width, HEADER_HEIGHT, QColor(colors.surface_elevated))
-        painter.setPen(QPen(QColor(colors.border_subtle), 1)); painter.drawLine(0, HEADER_HEIGHT-1, width, HEADER_HEIGHT-1)
+        painter.fillRect(0, 0, width, header_height, QColor(colors.surface_elevated))
+        painter.setPen(QPen(QColor(colors.border_subtle), 1)); painter.drawLine(0, header_height-1, width, header_height-1)
         self._paint_header(painter, horizontal, width)
         if not self.has_dated_work:
-            painter.setPen(QColor(colors.text_muted)); painter.drawText(QRectF(20, HEADER_HEIGHT+18, width-40, 50), Qt.AlignmentFlag.AlignHCenter, "Add start or due dates to see task bars on the timeline.")
+            painter.setPen(QColor(colors.text_muted)); painter.drawText(QRectF(20, header_height+18, width-40, 50), Qt.AlignmentFlag.AlignHCenter, "Add start or due dates to see task bars on the timeline.")
 
     def _paint_header(self, painter: QPainter, horizontal: int, width: int) -> None:
+        if self.zoom is GanttZoom.DAY:
+            self._paint_day_header(painter, horizontal)
+            return
         colors = self.theme.colors; cursor = self.timeline_range.start
         painter.setPen(QColor(colors.text_secondary))
         while cursor <= self.timeline_range.end:
-            show = (self.zoom is GanttZoom.DAY or self.zoom is GanttZoom.WEEK and cursor.weekday() == 0 or self.zoom is GanttZoom.MONTH and cursor.day == 1)
+            show = self.zoom is GanttZoom.WEEK and cursor.weekday() == 0 or self.zoom is GanttZoom.MONTH and cursor.day == 1
             if show:
                 x = date_to_x(cursor, self.timeline_range, self.zoom) - horizontal
-                label = cursor.strftime("%a %d") if self.zoom is GanttZoom.DAY else (f"Week of {cursor.strftime('%d %b')}" if self.zoom is GanttZoom.WEEK else cursor.strftime("%B %Y"))
+                label = f"Week of {cursor.strftime('%d %b')}" if self.zoom is GanttZoom.WEEK else cursor.strftime("%B %Y")
                 painter.drawText(QRectF(x+6, 0, max(80, width), HEADER_HEIGHT), Qt.AlignmentFlag.AlignVCenter, label)
             cursor += timedelta(days=1)
+
+    def _paint_day_header(self, painter: QPainter, horizontal: int) -> None:
+        colors = self.theme.colors
+        day_width = pixels_per_day(GanttZoom.DAY)
+        month_height = 25
+        today = date.today()
+        cursor = self.timeline_range.start
+        while cursor <= self.timeline_range.end:
+            x = date_to_x(cursor, self.timeline_range, GanttZoom.DAY) - horizontal
+            cell = QRectF(x, month_height, day_width, DAY_HEADER_HEIGHT - month_height)
+            if cursor.weekday() >= 5:
+                painter.fillRect(cell, QColor(colors.surface_secondary))
+            if cursor == today:
+                accent = QColor(colors.accent); accent.setAlpha(40)
+                painter.fillRect(cell, accent)
+            painter.setPen(QPen(QColor(colors.divider), 1))
+            painter.drawLine(int(x), month_height, int(x), DAY_HEADER_HEIGHT)
+            weekday, day_number = day_header_labels(cursor)
+            secondary_font = QFont(painter.font()); secondary_font.setPixelSize(self.theme.typography.small)
+            painter.setFont(secondary_font); painter.setPen(QColor(colors.text_muted))
+            painter.drawText(QRectF(x, month_height + 2, day_width, 17), Qt.AlignmentFlag.AlignCenter, weekday)
+            primary_font = QFont(painter.font()); primary_font.setPixelSize(self.theme.typography.body); primary_font.setWeight(QFont.Weight.DemiBold)
+            painter.setFont(primary_font); painter.setPen(QColor(colors.accent if cursor == today else colors.text_primary))
+            painter.drawText(QRectF(x, month_height + 18, day_width, 20), Qt.AlignmentFlag.AlignCenter, day_number)
+            cursor += timedelta(days=1)
+        month_font = QFont(painter.font()); month_font.setPixelSize(self.theme.typography.small); month_font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(month_font); painter.setPen(QColor(colors.text_secondary))
+        for segment in day_header_month_segments(self.timeline_range):
+            x = date_to_x(segment.start, self.timeline_range, GanttZoom.DAY) - horizontal
+            segment_width = ((segment.end - segment.start).days + 1) * day_width
+            painter.drawText(QRectF(x, 0, segment_width, month_height), Qt.AlignmentFlag.AlignCenter, segment.label)
+        painter.setPen(QPen(QColor(colors.border_subtle), 1))
+        painter.drawLine(0, month_height, self.viewport().width(), month_height)
 
 
 class GanttView(QWidget):
@@ -171,9 +214,11 @@ class GanttView(QWidget):
             button.clicked.connect(lambda _checked=False, selected=zoom: self.set_zoom(selected)); self.zoom_group.addButton(button); toolbar.addWidget(button); self.zoom_buttons[zoom] = button
         self.zoom_buttons[self.zoom].setChecked(True); root.addLayout(toolbar)
         self.splitter = QSplitter(Qt.Orientation.Horizontal); self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(2)
+        self.splitter.setStyleSheet(f"QSplitter::handle {{ background: {theme.colors.divider}; }}")
         self.task_table = QTableWidget(0,2); self.task_table.setHorizontalHeaderLabels(["Task","Owner"]); self.task_table.verticalHeader().hide()
         self.task_table.horizontalHeader().setFixedHeight(HEADER_HEIGHT); self.task_table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch); self.task_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.Fixed); self.task_table.setColumnWidth(1,120)
-        self.task_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.task_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.task_table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel); self.task_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.task_table.setMinimumWidth(300)
+        self.task_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.task_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.task_table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel); self.task_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.task_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.task_table.setFrameShape(QFrame.Shape.NoFrame); self.task_table.setMinimumWidth(300)
         self.task_table.cellClicked.connect(self._cell_clicked); self.task_table.cellDoubleClicked.connect(self._activate_left)
         self.timeline = GanttTimeline(); self.timeline.task_activated.connect(self.task_activated)
         self.splitter.addWidget(self.task_table); self.splitter.addWidget(self.timeline); self.splitter.setSizes([390,700]); self.splitter.setStretchFactor(1,1); root.addWidget(self.splitter,1)
@@ -188,7 +233,9 @@ class GanttView(QWidget):
         self._parents = parent_ids(self.tasks); self._rebuild()
 
     def set_zoom(self, zoom: GanttZoom | str) -> None:
-        self.zoom = GanttZoom(zoom); self.zoom_buttons[self.zoom].setChecked(True); self._rebuild()
+        self.zoom = GanttZoom(zoom); self.zoom_buttons[self.zoom].setChecked(True)
+        self.task_table.horizontalHeader().setFixedHeight(DAY_HEADER_HEIGHT if self.zoom is GanttZoom.DAY else HEADER_HEIGHT)
+        self._rebuild()
 
     def toggle_collapsed(self, task_id: UUID) -> None:
         if task_id not in self._parents: return

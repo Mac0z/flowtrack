@@ -39,6 +39,35 @@ class BarGeometry:
     milestone: bool
 
 
+@dataclass(frozen=True, slots=True)
+class MonthSegment:
+    """The inclusive portion of one calendar month visible on a timeline."""
+
+    start: date
+    end: date
+    label: str
+
+
+WEEKDAY_ABBREVIATIONS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+
+def day_header_month_segments(timeline: TimelineRange) -> list[MonthSegment]:
+    """Split a timeline into calendar-month spans without changing its dates."""
+    segments: list[MonthSegment] = []
+    cursor = timeline.start
+    while cursor <= timeline.end:
+        next_month = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
+        segment_end = min(timeline.end, next_month - timedelta(days=1))
+        segments.append(MonthSegment(cursor, segment_end, cursor.strftime("%B %Y").upper()))
+        cursor = segment_end + timedelta(days=1)
+    return segments
+
+
+def day_header_labels(value: date) -> tuple[str, str]:
+    """Return stable, locale-independent labels for a real calendar date."""
+    return WEEKDAY_ABBREVIATIONS[value.weekday()], str(value.day)
+
+
 def pixels_per_day(zoom: GanttZoom) -> float:
     return PIXELS_PER_DAY[zoom]
 
