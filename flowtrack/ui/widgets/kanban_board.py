@@ -2,7 +2,7 @@
 from __future__ import annotations
 from collections.abc import Callable
 from uuid import UUID
-from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt, Signal
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QDrag, QResizeEvent
 from sqlalchemy.exc import SQLAlchemyError
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QHBoxLayout, QLabel,
@@ -18,6 +18,7 @@ from flowtrack.ui.theme.status import status_color
 TASK_MIME_TYPE = "application/x-flowtrack-task-id"
 WORKING_STATUSES = (TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED,
                     TaskStatus.WAITING, TaskStatus.COMPLETE)
+MINIMUM_COLUMN_WIDTH = 190
 
 def _status_label(status: TaskStatus) -> str:
     return status.value.replace("_", " ").title()
@@ -82,13 +83,15 @@ class ProjectBoard(QWidget):
         tools=QHBoxLayout(); label=QLabel("Project board"); label.setStyleSheet(f"font-weight: {self.theme.typography.weight_semibold};")
         tools.addWidget(label); tools.addStretch(); self.show_cancelled=QCheckBox("Show Cancelled"); self.show_cancelled.toggled.connect(self.refresh); tools.addWidget(self.show_cancelled); root.addLayout(tools)
         self.error=QLabel(); self.error.setObjectName("dangerText"); self.error.setWordWrap(True); self.error.hide(); root.addWidget(self.error)
-        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.Shape.NoFrame); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.columns_host=QWidget(); self.columns_layout=QHBoxLayout(self.columns_host); self.columns_layout.setContentsMargins(0,0,0,0); self.columns_layout.setSpacing(10); scroll.setWidget(self.columns_host); root.addWidget(scroll,1)
+        self.scroll=QScrollArea(); self.scroll.setWidgetResizable(True); self.scroll.setFrameShape(QFrame.Shape.NoFrame); self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.columns_host=QWidget(); self.columns_layout=QHBoxLayout(self.columns_host); self.columns_layout.setContentsMargins(0,0,0,0); self.columns_layout.setSpacing(10); self.scroll.setWidget(self.columns_host); root.addWidget(self.scroll,1)
+        self.scroll.viewport().installEventFilter(self)
         self.columns={}; self.column_frames={}; self.headings={}
         for status in (*WORKING_STATUSES,TaskStatus.CANCELLED):self._add_column(status)
         self.column_frames[TaskStatus.CANCELLED].hide()
+        self._resize_columns()
     def _add_column(self,status:TaskStatus)->None:
-        frame=QFrame(); frame.setObjectName("kanbanColumn"); frame.setMinimumWidth(224); frame.setMaximumWidth(310)
+        frame=QFrame(); frame.setObjectName("kanbanColumn")
         frame.setStyleSheet(f"QFrame#kanbanColumn {{ background: {self.theme.colors.surface_primary}; border: 1px solid {self.theme.colors.border_subtle}; border-radius: {self.theme.radii.lg}px; }}")
         layout=QVBoxLayout(frame); layout.setContentsMargins(9,10,9,9); heading=QLabel(); heading.setStyleSheet(f"color: {status_color(self.theme,status)}; font-weight: {self.theme.typography.weight_semibold};"); layout.addWidget(heading)
         task_list=KanbanColumnList(status,self.move_task); task_list.itemClicked.connect(lambda item:self.task_activated.emit(item.data(Qt.ItemDataRole.UserRole))); task_list.itemDoubleClicked.connect(lambda item:self.task_activated.emit(item.data(Qt.ItemDataRole.UserRole))); layout.addWidget(task_list,1); self.columns_layout.addWidget(frame)
@@ -103,6 +106,30 @@ class ProjectBoard(QWidget):
             for row in visible_rows:
                 item=QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole,row.id); item.setSizeHint(QSize(0,92+(18 if row.parent_task_id else 0))); task_list.addItem(item); task_list.setItemWidget(item,TaskCard(row,titles.get(row.parent_task_id)))
             task_list._fit_items_to_viewport()
+        self._resize_columns()
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.scroll.viewport() and event.type() is QEvent.Type.Resize:
+            self._resize_columns()
+        return super().eventFilter(watched,event)
+    def _resize_columns(self) -> None:
+        """Fit the working columns to the live viewport and overflow only for Cancelled."""
+        if not hasattr(self,"column_frames") or not self.column_frames:
+            return
+        margins=self.columns_layout.contentsMargins(); spacing=self.columns_layout.spacing()
+        available_width=(self.scroll.viewport().width()-margins.left()-margins.right()
+                         - spacing*(len(WORKING_STATUSES)-1))
+        column_width=max(MINIMUM_COLUMN_WIDTH,available_width//len(WORKING_STATUSES))
+        remainder=max(0,available_width-column_width*len(WORKING_STATUSES))
+        for index,status in enumerate(WORKING_STATUSES):
+            self.column_frames[status].setFixedWidth(column_width+(1 if index < remainder else 0))
+        self.column_frames[TaskStatus.CANCELLED].setFixedWidth(column_width)
+        visible_count=len(WORKING_STATUSES)+(1 if self.show_cancelled.isChecked() else 0)
+        visible_width=sum(self.column_frames[status].width() for status in WORKING_STATUSES)
+        if self.show_cancelled.isChecked():
+            visible_width+=column_width
+        self.columns_host.setMinimumWidth(
+            margins.left()+margins.right()+visible_width+spacing*(visible_count-1)
+        )
     def move_task(self,task_id:UUID,status:TaskStatus)->bool:
         current=next((column for column in self.columns.values() if any(column.item(i).data(Qt.ItemDataRole.UserRole)==task_id for i in range(column.count()))),None)
         if current is not None and current.status is status:return False
