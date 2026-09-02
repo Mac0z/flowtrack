@@ -21,6 +21,7 @@ from flowtrack.ui.views.placeholder import PlaceholderView
 from flowtrack.ui.views.dashboard import DashboardView
 from flowtrack.ui.views.my_tasks import MyTasksView
 from flowtrack.ui.views.projects import ProjectsView
+from flowtrack.ui.views.calendar import CalendarView
 from flowtrack.ui.dialogs.quick_capture import QuickCaptureDialog
 from flowtrack.ui.dialogs.people_tags import PeopleTagsDialog
 from flowtrack.ui.widgets.task_inspector import TaskInspector
@@ -104,6 +105,10 @@ class MainWindow(QMainWindow):
                 page.task_selected.connect(self.open_inspector)
                 page.new_task_requested.connect(self.open_project_task)
                 page.project_changed.connect(self.refresh_project_views)
+            elif item.destination is Destination.CALENDAR:
+                page = CalendarView(self.task_service, self.task_queries)
+                page.task_selected.connect(self.open_inspector)
+                page.data_changed.connect(self.refresh_project_views)
             else:
                 page = PlaceholderView(item.label)
             self.pages[item.destination] = page
@@ -213,6 +218,8 @@ class MainWindow(QMainWindow):
         dashboard = self.pages.get(Destination.DASHBOARD); tasks = self.pages.get(Destination.MY_TASKS)
         if isinstance(dashboard, DashboardView): dashboard.refresh()
         if isinstance(tasks, MyTasksView): tasks.refresh()
+        calendar = self.pages.get(Destination.CALENDAR)
+        if isinstance(calendar, CalendarView): calendar.refresh()
 
     def open_inspector(self, task_id: object) -> None:
         self.inspector.load_task(task_id)
