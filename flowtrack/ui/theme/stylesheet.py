@@ -59,4 +59,8 @@ QProgressBar::chunk {{ background: {c.accent}; border-radius: {r.sm}px; }}
 QWidget#tagChip {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; }}
 QPushButton#tagChipRemove {{ border: 0; background: transparent; padding: 2px 6px; color: {c.text_secondary}; }}
 QPushButton#tagChipRemove:hover {{ color: {c.text_primary}; background: {c.surface_hover}; }}
+QWidget#dependencyRow {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; }}
+QLabel#dependencyText {{ color: {c.text_primary}; background: transparent; }}
+QPushButton#dependencyRemove {{ border: 0; background: transparent; padding: 3px 7px; color: {c.text_secondary}; }}
+QPushButton#dependencyRemove:hover {{ color: {c.danger}; background: {c.surface_hover}; }}
 """

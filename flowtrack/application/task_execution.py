@@ -113,12 +113,33 @@ class TaskExecutionService:
     def add_dependency(self, predecessor_id: UUID, successor_id: UUID) -> UUID:
         with transaction(self._factory) as session:
             self._require_task(session, predecessor_id); self._require_task(session, successor_id)
+            existing = session.scalar(select(Dependency).where(
+                Dependency.predecessor_task_id == predecessor_id,
+                Dependency.successor_task_id == successor_id,
+            ))
+            if existing is not None:
+                return existing.id
             edges = list(session.execute(select(Dependency.predecessor_task_id,
                                                 Dependency.successor_task_id)).all())
-            ensure_dependency_is_acyclic(predecessor_id, successor_id, edges)
+            try:
+                ensure_dependency_is_acyclic(predecessor_id, successor_id, edges)
+            except ValueError as error:
+                message = ("This dependency would create a circular dependency."
+                           if "cycle" in str(error) else "A task cannot depend on itself.")
+                raise TaskValidationError(message) from error
             dependency = Dependency(predecessor_task_id=predecessor_id, successor_task_id=successor_id)
             DependencyRepository(session).add(dependency)
             return dependency.id
+
+    def remove_dependency(self, predecessor_id: UUID, successor_id: UUID) -> None:
+        """Remove one Finish-to-Start edge, safely doing nothing if it is already absent."""
+        with transaction(self._factory) as session:
+            dependency = session.scalar(select(Dependency).where(
+                Dependency.predecessor_task_id == predecessor_id,
+                Dependency.successor_task_id == successor_id,
+            ))
+            if dependency is not None:
+                DependencyRepository(session).delete(dependency)
 
     def create_owner(self, name: str, **metadata: object) -> UUID:
         clean = name.strip()
