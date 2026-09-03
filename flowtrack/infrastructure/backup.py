@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import sqlite3
-from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -53,11 +52,13 @@ def check_integrity(path: Path, *, full: bool = False) -> IntegrityResult:
     if not path.is_file() or path.stat().st_size == 0:
         return IntegrityResult(False, ("The database file is missing or empty.",))
     connection: sqlite3.Connection | None = None
+    cursor: sqlite3.Cursor | None = None
     try:
         uri = f"{path.resolve().as_uri()}?mode=ro"
         connection = sqlite3.connect(uri, uri=True)
         pragma = "integrity_check" if full else "quick_check"
-        messages = tuple(str(row[0]) for row in connection.execute(f"PRAGMA {pragma}"))
+        cursor = connection.execute(f"PRAGMA {pragma}")
+        messages = tuple(str(row[0]) for row in cursor)
         result = IntegrityResult(messages == ("ok",), messages)
         logger.info("SQLite %s for %s: %s", pragma, path, "ok" if result.ok else "failed")
         return result
@@ -65,8 +66,12 @@ def check_integrity(path: Path, *, full: bool = False) -> IntegrityResult:
         logger.warning("SQLite integrity check failed for %s: %s", path, error)
         return IntegrityResult(False, ("The file could not be validated as a SQLite database.",))
     finally:
-        if connection is not None:
-            connection.close()
+        try:
+            if cursor is not None:
+                cursor.close()
+        finally:
+            if connection is not None:
+                connection.close()
 
 
 class BackupManager:
@@ -96,10 +101,19 @@ class BackupManager:
         logger.info("Backup requested (%s): %s", reason.value, destination)
         try:
             source_uri = f"{self.paths.database.resolve().as_uri()}?mode=ro"
-            with closing(sqlite3.connect(source_uri, uri=True)) as source, closing(
-                sqlite3.connect(temporary)
-            ) as target:
+            source: sqlite3.Connection | None = None
+            target: sqlite3.Connection | None = None
+            try:
+                source = sqlite3.connect(source_uri, uri=True)
+                target = sqlite3.connect(temporary)
                 source.backup(target)
+            finally:
+                try:
+                    if target is not None:
+                        target.close()
+                finally:
+                    if source is not None:
+                        source.close()
             result = check_integrity(temporary, full=True)
             if not result.ok:
                 raise BackupError("FlowTrack could not validate the new backup.")
