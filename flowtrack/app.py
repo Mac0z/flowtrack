@@ -13,7 +13,9 @@ from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.infrastructure.paths import default_database_path
 from flowtrack.infrastructure.dataset import DatasetPaths, resolve_saved_or_legacy_dataset
 from flowtrack.infrastructure.lease import HEARTBEAT_INTERVAL_MS
-from flowtrack.application.startup import open_dataset
+from flowtrack.application.startup import StartupSafetyError, open_dataset
+from flowtrack.application.data_safety import DataSafetyService
+from flowtrack.infrastructure.backup import BackupManager
 from flowtrack.persistence.database import session_factory
 from flowtrack.application.task_execution import TaskExecutionService
 from flowtrack.application.task_queries import TaskQueryService
@@ -47,14 +49,28 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings.data_directory = selected
         paths = DatasetPaths(selected)
     logger.info("Selected dataset path: %s", paths.root)
-    dataset_session = open_dataset(paths, decide_startup)
+    try:
+        dataset_session = open_dataset(paths, decide_startup)
+    except StartupSafetyError as error:
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.critical(
+            None, "Data Safety Error",
+            f"{error}\n\nOpen the selected data folder outside FlowTrack to preserve it or "
+            "recover from a validated backup, then restart FlowTrack."
+        )
+        return 1
     if dataset_session is None:
         logger.info("Dataset startup cancelled")
         return 0
     factory = session_factory(dataset_session.engine)
+    data_safety = DataSafetyService(
+        BackupManager(paths), read_only=dataset_session.read_only,
+        close_connections=dataset_session.engine.dispose,
+    )
     window = MainWindow(
         settings, TaskExecutionService(factory), TaskQueryService(factory),
         data_directory=paths.root, read_only=dataset_session.read_only,
+        data_safety=data_safety,
     )
     heartbeat = QTimer(application)
     heartbeat.setInterval(HEARTBEAT_INTERVAL_MS)

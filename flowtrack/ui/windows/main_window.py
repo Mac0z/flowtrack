@@ -13,6 +13,7 @@ from flowtrack.persistence.database import session_factory
 from flowtrack.application.task_execution import TaskExecutionService, TaskValidationError
 from flowtrack.application.task_queries import TaskQueryService
 from flowtrack.application.projects import ProjectQueryService, ProjectService
+from flowtrack.application.data_safety import DataSafetyService
 
 from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.ui.dialogs.command_palette import CommandPalette
@@ -36,11 +37,13 @@ class MainWindow(QMainWindow):
     def __init__(self, settings: ApplicationSettings | None = None,
                  task_service: TaskExecutionService | None = None,
                  task_queries: TaskQueryService | None = None, *,
-                 data_directory: Path | None = None, read_only: bool = False) -> None:
+                 data_directory: Path | None = None, read_only: bool = False,
+                 data_safety: DataSafetyService | None = None) -> None:
         super().__init__()
         self.settings = settings or ApplicationSettings()
         self.read_only = read_only
         self.data_directory = data_directory
+        self.data_safety = data_safety
         self.setWindowTitle("FlowTrack — Read-Only" if read_only else "FlowTrack")
         self.setMinimumSize(960, 640)
         self.resize(1280, 800)
@@ -115,7 +118,8 @@ class MainWindow(QMainWindow):
                 page.task_selected.connect(self.open_inspector)
                 page.data_changed.connect(self.refresh_project_views)
             elif item.destination is Destination.SETTINGS and self.data_directory is not None:
-                page = SettingsView(self.data_directory)
+                page = SettingsView(self.data_directory, self.data_safety)
+                page.restart_requested.connect(self.close)
             else:
                 page = PlaceholderView(item.label)
             self.pages[item.destination] = page

@@ -6,6 +6,8 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -60,3 +62,25 @@ def migrate_database(path: Path, revision: str = "head") -> None:
     """Create or upgrade a database to a versioned schema revision."""
     path.parent.mkdir(parents=True, exist_ok=True)
     command.upgrade(migration_config(database_url(path)), revision)
+
+
+def migration_status(path: Path) -> tuple[str | None, str]:
+    """Return the database revision (if any) and configured Alembic head."""
+    config = migration_config(database_url(path))
+    head = ScriptDirectory.from_config(config).get_current_head()
+    if head is None:
+        raise RuntimeError("FlowTrack migration history has no head revision")
+    if not path.is_file() or path.stat().st_size == 0:
+        return None, head
+    engine = create_database_engine(path, read_only=True)
+    try:
+        with engine.connect() as connection:
+            current = MigrationContext.configure(connection).get_current_revision()
+    finally:
+        engine.dispose()
+    return current, head
+
+
+def migration_required(path: Path) -> bool:
+    current, head = migration_status(path)
+    return path.is_file() and path.stat().st_size > 0 and current != head

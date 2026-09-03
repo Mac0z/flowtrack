@@ -13,7 +13,12 @@ from sqlalchemy import Engine
 from flowtrack.infrastructure.dataset import DatasetPaths
 from flowtrack.infrastructure.lease import LeaseState, LeaseStore
 from flowtrack.infrastructure.locking import DatasetLock
-from flowtrack.persistence.database import create_database_engine, migrate_database
+from flowtrack.infrastructure.backup import (
+    BackupError, BackupManager, BackupReason, check_integrity,
+)
+from flowtrack.persistence.database import (
+    create_database_engine, migrate_database, migration_required,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +27,10 @@ class StartupChoice(Enum):
     WRITE = "write"
     READ_ONLY = "read_only"
     CANCEL = "cancel"
+
+
+class StartupSafetyError(RuntimeError):
+    """Writable startup stopped without changing an unsafe database."""
 
 
 @dataclass
@@ -60,6 +69,8 @@ def open_dataset(
     migrate: Callable[[Path], None] = migrate_database,
     lock_factory: Callable[[Path], DatasetLock] = DatasetLock,
     now: datetime | None = None,
+    backup_manager_factory: Callable[[DatasetPaths], BackupManager] = BackupManager,
+    needs_migration: Callable[[Path], bool] = migration_required,
 ) -> DatasetSession | None:
     """Open a dataset only after the caller explicitly resolves safety states."""
     paths.initialise()
@@ -94,9 +105,38 @@ def open_dataset(
     logger.info("Local dataset lock acquired for %s", paths.root)
     try:
         lease.claim(identity)
-        # M8B inserts backup-before-migration at this explicit ownership boundary.
+        manager = backup_manager_factory(paths)
+        existing = paths.database.is_file() and paths.database.stat().st_size > 0
+        if existing and not check_integrity(paths.database).ok:
+            raise StartupSafetyError(
+                "FlowTrack found a problem with the selected database and has not opened it "
+                "for writing. Your original data has not been replaced."
+            )
+        if existing and needs_migration(paths.database):
+            logger.info("Creating required pre-migration backup")
+            try:
+                manager.create(BackupReason.MIGRATION, now=now)
+            except BackupError as error:
+                raise StartupSafetyError(
+                    "FlowTrack could not create the required migration backup. The database "
+                    "was not migrated."
+                ) from error
         migrate(paths.database)
+        database_ready = paths.database.is_file() and paths.database.stat().st_size > 0
+        if database_ready and not check_integrity(paths.database).ok:
+            raise StartupSafetyError(
+                "FlowTrack could not validate the database after migration and has not opened it."
+            )
         engine = create_database_engine(paths.database)
+        if database_ready:
+            try:
+                manager.create_daily_if_needed(now=now)
+            except BackupError as error:
+                engine.dispose()
+                raise StartupSafetyError(
+                    "FlowTrack could not create the required automatic backup and has not "
+                    "opened the database for writing."
+                ) from error
     except BaseException:
         lease.release(identity)
         lock.release()
