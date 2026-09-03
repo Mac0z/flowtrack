@@ -172,10 +172,10 @@ class SettingsView(QWidget):
         return self._confirmation("Use Existing FlowTrack Data?", message, "Use This Data")
 
     def _confirmation(self, title: str, message: str, accept_text: str) -> bool:
-        dialog = QMessageBox(QMessageBox.Icon.Question, title, message, parent=self)
-        # Set this explicitly because some Qt platform plugins do not preserve
-        # the constructor title consistently (notably the macOS implementation).
+        dialog = QMessageBox(parent=self)
+        dialog.setIcon(QMessageBox.Icon.Question)
         dialog.setWindowTitle(title)
+        dialog.setText(message)
         dialog.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
         dialog.button(QMessageBox.StandardButton.Ok).setText(accept_text)
         dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
