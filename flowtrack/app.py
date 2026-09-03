@@ -1,7 +1,9 @@
 """Application bootstrap for the FlowTrack desktop shell."""
 
 import logging
+import os
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -9,6 +11,7 @@ from PySide6.QtCore import QCoreApplication, QTimer
 from PySide6.QtWidgets import QApplication
 
 from flowtrack import __version__
+from flowtrack.infrastructure.identity import APPLICATION_NAME, ORGANIZATION_NAME
 from flowtrack.infrastructure.logging import configure_logging
 from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.infrastructure.paths import default_database_path
@@ -30,10 +33,35 @@ from flowtrack.ui.dialogs.startup import choose_data_directory, decide_startup, 
 
 def create_application(arguments: Sequence[str] | None = None) -> QApplication:
     """Create and identify the Qt application without starting its event loop."""
-    QCoreApplication.setOrganizationName("FlowTrack")
-    QCoreApplication.setApplicationName("FlowTrack")
+    QCoreApplication.setOrganizationName(ORGANIZATION_NAME)
+    QCoreApplication.setApplicationName(APPLICATION_NAME)
     QCoreApplication.setApplicationVersion(__version__)
     return QApplication(list(arguments) if arguments is not None else sys.argv)
+
+
+def run(arguments: Sequence[str] | None = None) -> int:
+    """Run FlowTrack with logged, concise GUI handling for fatal startup errors."""
+    try:
+        return main(arguments)
+    except BaseException:
+        try:
+            configure_logging()
+            logging.getLogger(__name__).exception("Fatal error during FlowTrack startup")
+            if os.environ.get("FLOWTRACK_PACKAGING_SMOKE_TEST") == "1":
+                return 1
+            application = QApplication.instance() or create_application(arguments)
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                None,
+                "FlowTrack could not start",
+                "FlowTrack could not start. Diagnostic details were written to the "
+                "FlowTrack log. Your data has not been intentionally changed.",
+            )
+            application.processEvents()
+        except BaseException:
+            # At this point even Qt or the writable log destination is unavailable.
+            pass
+        return 1
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
@@ -41,10 +69,20 @@ def main(arguments: Sequence[str] | None = None) -> int:
     configure_logging()
     logger = logging.getLogger(__name__)
     logger.info("Starting FlowTrack %s", __version__)
+    if os.environ.get("FLOWTRACK_PACKAGING_SMOKE_TEST") == "1":
+        from flowtrack.infrastructure.packaging_smoke import run_packaging_smoke
+        run_packaging_smoke()
+        logger.info("Packaged runtime smoke check passed")
+        return 0
     application = create_application(arguments)
     settings = ApplicationSettings()
     apply_theme(application, get_theme(settings.theme_id))
-    paths = resolve_saved_or_legacy_dataset(settings, default_database_path())
+    smoke_directory: tempfile.TemporaryDirectory[str] | None = None
+    if os.environ.get("FLOWTRACK_PACKAGING_GUI_SMOKE_TEST") == "1":
+        smoke_directory = tempfile.TemporaryDirectory(prefix="flowtrack-gui-smoke-")
+        paths = DatasetPaths(Path(smoke_directory.name))
+    else:
+        paths = resolve_saved_or_legacy_dataset(settings, default_database_path())
     if paths is None:
         selected = choose_data_directory()
         if selected is None:
@@ -127,4 +165,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     application.aboutToQuit.connect(cleanup)
     window.show()
+    if smoke_directory is not None:
+        QTimer.singleShot(1000, application.quit)
     return application.exec()

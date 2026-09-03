@@ -115,3 +115,6 @@ row. Complete and Cancelled tasks cannot be sources or targets, and the Task
 Inspector remains the dependency editor for undated source tasks. Horizontal
 auto-scroll during a dependency drag is intentionally deferred as future
 polish; users can scroll the timeline before starting a drag.
+Native macOS and Windows packaging uses PyInstaller. See
+[`docs/M9B_PACKAGING.md`](docs/M9B_PACKAGING.md) for build commands, artifact
+layouts, validation, and release limitations.

@@ -8,8 +8,8 @@ htmlcov/
 venv/
 build/
 dist/
+packaging/.pyinstaller/
 *.log
 *.db
 *.sqlite*
 .DS_Store
-

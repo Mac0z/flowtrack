@@ -13,6 +13,8 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
+from flowtrack.infrastructure.resources import migration_directory
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,9 +89,8 @@ def transaction(factory: sessionmaker[Session]) -> Iterator[Session]:
 
 def migration_config(url: str | None = None) -> Config:
     """Return an Alembic configuration rooted in the installed package."""
-    migrations = Path(__file__).parent / "migrations"
     config = Config()
-    config.set_main_option("script_location", str(migrations))
+    config.set_main_option("script_location", str(migration_directory()))
     if url is not None:
         config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     return config
