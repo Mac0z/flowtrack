@@ -43,6 +43,27 @@ SQLite foreign-key enforcement is enabled for every application engine. No WAL
 journal mode is selected by M1; cloud-folder durability and locking decisions
 remain explicitly deferred to M8.
 
+## Local backups and restore
+
+FlowTrack keeps all backups locally in the selected dataset's `backups/`
+directory. Managed files use UTC names such as
+`flowtrack-20260903-141500-daily.db`; the other types are `manual`, `migration`,
+and `pre-restore`. Backups are complete standalone SQLite databases created
+through SQLite's native backup API and are integrity-checked before adoption.
+
+During a writable startup, FlowTrack creates at most one daily backup per UTC
+calendar day when the database is newer than the newest managed backup. This is
+a conservative filesystem-modification-time policy that avoids adding tracking
+data to the user's schema. The newest 30 daily backups are retained; manual,
+migration, and pre-restore backups are never removed by automatic retention.
+An existing database is backed up before any required schema migration.
+
+Settings provides **Backup Now** and a compact list of validated backups. A
+restore validates its source, creates and validates a pre-restore safety backup,
+closes active database connections, atomically adopts and revalidates the
+selected database, and then closes FlowTrack so that the next launch starts with
+fresh sessions. Mutating backup operations are unavailable in read-only mode.
+
 ## Compatibility assumptions
 
 - macOS 11 Big Sur or newer is supported on Intel and Apple Silicon.
