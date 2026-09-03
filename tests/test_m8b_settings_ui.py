@@ -58,14 +58,26 @@ def test_confirmations_default_to_cancel_and_escape(application, tmp_path, monke
     observed = []
 
     def cancel(dialog):
-        observed.append((dialog.windowTitle(), dialog.defaultButton(), dialog.escapeButton()))
+        observed.append({
+            "accessible_name": dialog.accessibleName(),
+            "text": dialog.text(),
+            "affirmative": dialog.button(QMessageBox.StandardButton.Ok).text(),
+            "default": dialog.defaultButton().text(),
+            "escape": dialog.escapeButton().text(),
+        })
         return QMessageBox.StandardButton.Cancel
 
     monkeypatch.setattr(QMessageBox, "exec", cancel)
     assert not view._confirm_move(tmp_path / "new")
     assert not view._confirm_existing(tmp_path / "old")
-    assert [item[0] for item in observed] == [
-        "Move FlowTrack Data?", "Use Existing FlowTrack Data?"
-    ]
-    assert all(item[1].text() == "Cancel" and item[2].text() == "Cancel"
+    move, existing = observed
+    assert move["accessible_name"] == "Move FlowTrack Data?"
+    assert "safely copy" in move["text"]
+    assert str(tmp_path / "new") in move["text"]
+    assert move["affirmative"] == "Move Data"
+    assert existing["accessible_name"] == "Use Existing FlowTrack Data?"
+    assert "switch to" in existing["text"]
+    assert str(tmp_path / "old") in existing["text"]
+    assert existing["affirmative"] == "Use This Data"
+    assert all(item["default"] == "Cancel" and item["escape"] == "Cancel"
                for item in observed)

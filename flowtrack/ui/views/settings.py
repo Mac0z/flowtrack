@@ -175,6 +175,7 @@ class SettingsView(QWidget):
         dialog = QMessageBox(parent=self)
         dialog.setIcon(QMessageBox.Icon.Question)
         dialog.setWindowTitle(title)
+        dialog.setAccessibleName(title)
         dialog.setText(message)
         dialog.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
         dialog.button(QMessageBox.StandardButton.Ok).setText(accept_text)
