@@ -27,7 +27,7 @@ def value(path):
         return connection.execute("SELECT value FROM sample").fetchone()[0]
 
 
-def test_backup_is_standalone_valid_contains_data_and_never_overwrites(tmp_path):
+def test_successful_backup_is_valid_never_overwrites_and_leaves_no_temp_file(tmp_path):
     paths = DatasetPaths(tmp_path); paths.initialise(); database(paths.database)
     manager = BackupManager(paths)
     first = manager.create(BackupReason.MANUAL, now=NOW)
@@ -45,6 +45,52 @@ def test_failed_backup_removes_partial_temporary_file(tmp_path, monkeypatch):
     with pytest.raises(BackupError):
         BackupManager(paths).create(BackupReason.MANUAL, now=NOW)
     assert list(paths.backups.iterdir()) == []
+
+
+def test_failed_backup_cleanup_cannot_mask_original_error(tmp_path, monkeypatch):
+    paths = DatasetPaths(tmp_path); paths.initialise(); database(paths.database)
+    monkeypatch.setattr("flowtrack.infrastructure.backup.check_integrity",
+                        lambda *_args, **_kwargs: type("Result", (), {"ok": False})())
+    original_unlink = type(paths.database).unlink
+
+    def fail_temporary_unlink(path, *args, **kwargs):
+        if path.name.endswith(".tmp"):
+            raise PermissionError("temporary file is busy")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(paths.database), "unlink", fail_temporary_unlink)
+    with pytest.raises(BackupError, match="could not validate the new backup"):
+        BackupManager(paths).create(BackupReason.MANUAL, now=NOW)
+
+
+def test_backup_connections_are_closed_before_atomic_replace(tmp_path, monkeypatch):
+    paths = DatasetPaths(tmp_path); paths.initialise(); database(paths.database)
+    real_connect = sqlite3.connect
+    connections = []
+
+    class TrackedConnection(sqlite3.Connection):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.closed = False
+            connections.append(self)
+
+        def close(self):
+            super().close()
+            self.closed = True
+
+    def tracked_connect(*args, **kwargs):
+        return real_connect(*args, factory=TrackedConnection, **kwargs)
+
+    real_replace = os.replace
+
+    def assert_closed_before_replace(source, destination):
+        assert connections and all(connection.closed for connection in connections)
+        real_replace(source, destination)
+
+    monkeypatch.setattr(sqlite3, "connect", tracked_connect)
+    monkeypatch.setattr(os, "replace", assert_closed_before_replace)
+    BackupManager(paths).create(BackupReason.MANUAL, now=NOW)
+    assert all(connection.closed for connection in connections)
 
 
 def test_integrity_failure_is_structured_and_safe(tmp_path):

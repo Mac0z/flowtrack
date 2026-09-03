@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -95,7 +96,9 @@ class BackupManager:
         logger.info("Backup requested (%s): %s", reason.value, destination)
         try:
             source_uri = f"{self.paths.database.resolve().as_uri()}?mode=ro"
-            with sqlite3.connect(source_uri, uri=True) as source, sqlite3.connect(temporary) as target:
+            with closing(sqlite3.connect(source_uri, uri=True)) as source, closing(
+                sqlite3.connect(temporary)
+            ) as target:
                 source.backup(target)
             result = check_integrity(temporary, full=True)
             if not result.ok:
@@ -112,7 +115,7 @@ class BackupManager:
             logger.exception("Backup failed (%s): %s", reason.value, error)
             raise BackupError("FlowTrack could not create a safe backup.") from error
         finally:
-            temporary.unlink(missing_ok=True)
+            self._remove_temporary(temporary)
 
     def create_daily_if_needed(self, *, now: datetime | None = None) -> BackupInfo | None:
         """Back up once per UTC day when the DB is newer than the newest backup."""
@@ -170,7 +173,7 @@ class BackupManager:
                 self._adopt_safety_copy(safety.path)
             raise BackupError("FlowTrack could not restore the backup safely.") from error
         finally:
-            candidate.unlink(missing_ok=True)
+            self._remove_temporary(candidate)
 
     def _adopt_safety_copy(self, safety: Path) -> None:
         candidate = self.paths.database.with_name(".flowtrack-rollback.tmp")
@@ -190,8 +193,18 @@ class BackupManager:
     @staticmethod
     def _sync_file(path: Path) -> None:
         """Ask the OS to flush a completed candidate before atomic adoption."""
-        with path.open("rb") as stream:
+        # Windows' fsync implementation requires a writable file descriptor.
+        with path.open("r+b") as stream:
+            stream.flush()
             os.fsync(stream.fileno())
+
+    @staticmethod
+    def _remove_temporary(path: Path) -> None:
+        """Best-effort cleanup that cannot replace the operation's real error."""
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove temporary database file: %s", path, exc_info=True)
 
     @staticmethod
     def _parse(path: Path) -> tuple[datetime, BackupReason] | None:
