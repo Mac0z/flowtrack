@@ -1,5 +1,6 @@
 """Cross-platform persistence for UI-only application preferences."""
 import json
+from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings
 
@@ -11,6 +12,17 @@ class ApplicationSettings:
 
     def __init__(self, settings: QSettings | None = None) -> None:
         self._settings = settings or QSettings()
+
+    @property
+    def data_directory(self) -> Path | None:
+        """Return the selected dataset directory without requiring it to exist."""
+        value = self._settings.value("data/directory", "", type=str).strip()
+        return Path(value).expanduser() if value else None
+
+    @data_directory.setter
+    def data_directory(self, directory: Path) -> None:
+        self._settings.setValue("data/directory", str(Path(directory).expanduser()))
+        self._settings.sync()
 
     @property
     def theme_id(self) -> str:

@@ -1,6 +1,7 @@
 """Regressions for the M5 tab theme and post-capture refresh path."""
 
 from datetime import date
+from pathlib import Path
 
 from PySide6.QtCore import QSettings
 from sqlalchemy import create_engine
@@ -31,6 +32,18 @@ def _window(tmp_path) -> MainWindow:
         TaskExecutionService(factory),
         TaskQueryService(factory),
     )
+
+
+def test_selected_data_directory_persists_without_requiring_existing_path(tmp_path) -> None:
+    store = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    settings = ApplicationSettings(store)
+    selected = tmp_path / "not-created-yet" / "FlowTrackData"
+    settings.data_directory = selected
+
+    reopened = ApplicationSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    assert reopened.data_directory == Path(selected)
 
 
 def test_stylesheet_defines_semantic_tab_states() -> None:
