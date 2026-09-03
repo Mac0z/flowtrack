@@ -23,6 +23,8 @@ class ApplicationSettings:
     def data_directory(self, directory: Path) -> None:
         self._settings.setValue("data/directory", str(Path(directory).expanduser()))
         self._settings.sync()
+        if self._settings.status() is not QSettings.Status.NoError:
+            raise OSError("The data directory preference could not be persisted.")
 
     @property
     def theme_id(self) -> str:

@@ -604,6 +604,12 @@ The session lease should contain, at minimum:
 -   Provide **Restore Backup**.
 -   Provide **Open Data Folder**.
 -   Provide **Change Data Location**.
+-   **Change Data Location** lets the user either safely copy the current
+    dataset to a new directory or select an existing FlowTrack dataset. A copy
+    preserves the original as a safety copy; FlowTrack never silently merges or
+    overwrites SQLite datasets. The selected location becomes active only after
+    restart and passes through the normal local-lock, lease, conflict, integrity,
+    migration, backup and journal-safety startup flow.
 -   Preserve the current database before a restore.
 -   Validate the restored database before adopting it.
 -   Never auto-merge conflicting SQLite databases.
