@@ -1,36 +1,87 @@
 """Data-location, backup, and restore settings."""
 
 from pathlib import Path
+from collections.abc import Callable
 
 from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QLabel,
+    QMessageBox, QPushButton, QRadioButton, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
+from flowtrack.application.data_location import (
+    DataLocationError, DatasetRelocationService, PreparedMove,
+)
 from flowtrack.application.data_safety import DataSafetyService
 from flowtrack.infrastructure.backup import BackupError, BackupInfo
+from flowtrack.infrastructure.settings import ApplicationSettings
+
+
+class ChangeDataLocationDialog(QDialog):
+    """Explicit choice between copying current data and selecting existing data."""
+
+    def __init__(self, *, move_enabled: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Change Data Location")
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Change Data Location"))
+        self.move_option = QRadioButton("Move my current FlowTrack data")
+        self.move_option.setObjectName("moveCurrentDataOption")
+        self.move_option.setEnabled(move_enabled)
+        layout.addWidget(self.move_option)
+        move_detail = QLabel("Safely copy this FlowTrack data to another folder.")
+        move_detail.setObjectName("mutedText"); layout.addWidget(move_detail)
+        self.existing_option = QRadioButton("Use an existing FlowTrack data folder")
+        self.existing_option.setObjectName("useExistingDataOption")
+        layout.addWidget(self.existing_option)
+        existing_detail = QLabel("Switch to FlowTrack data already stored elsewhere.")
+        existing_detail.setObjectName("mutedText"); layout.addWidget(existing_detail)
+        (self.move_option if move_enabled else self.existing_option).setChecked(True)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Continue")
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    @property
+    def move_selected(self) -> bool:
+        return self.move_option.isChecked()
 
 
 class SettingsView(QWidget):
     restart_requested = Signal()
 
     def __init__(self, data_directory: Path,
-                 data_safety: DataSafetyService | None = None) -> None:
+                 data_safety: DataSafetyService | None = None, *,
+                 settings: ApplicationSettings | None = None,
+                 commit_change: Callable[[PreparedMove | None, Path | None], None] | None = None) -> None:
         super().__init__()
         self.data_safety = data_safety
+        self.data_directory = Path(data_directory)
+        self.settings = settings or ApplicationSettings()
+        self.relocation = DatasetRelocationService(
+            self.data_directory, self.settings, self.data_safety
+        )
+        self._commit_change = commit_change
         self._backups: list[BackupInfo] = []
         layout = QVBoxLayout(self)
         title = QLabel("Settings"); title.setObjectName("pageTitle"); layout.addWidget(title)
-        layout.addWidget(QLabel("Data"))
-        location = QLabel(str(data_directory)); location.setObjectName("mutedText")
-        layout.addWidget(location)
-        open_folder = QPushButton("Open Data Folder")
-        open_folder.clicked.connect(
+        layout.addWidget(QLabel("Data Location"))
+        self.data_location_label = QLabel(str(data_directory))
+        self.data_location_label.setObjectName("mutedText")
+        layout.addWidget(self.data_location_label)
+        self.open_folder_button = QPushButton("Open Data Folder")
+        self.open_folder_button.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(data_directory)))
         )
-        layout.addWidget(open_folder)
+        layout.addWidget(self.open_folder_button)
+        self.change_location_button = QPushButton("Change Data Location…")
+        self.change_location_button.setObjectName("changeDataLocationButton")
+        self.change_location_button.clicked.connect(self._change_data_location)
+        layout.addWidget(self.change_location_button)
         layout.addWidget(QLabel("Backups"))
         self.last_daily_label = QLabel("Last automatic backup: None")
         self.last_daily_label.setObjectName("mutedText"); layout.addWidget(self.last_daily_label)
@@ -55,6 +106,78 @@ class SettingsView(QWidget):
         self.backup_now_button.setEnabled(writable)
         self.restore_button.setEnabled(False)
         self.refresh_backups()
+
+    def _change_data_location(self) -> None:
+        choice = ChangeDataLocationDialog(
+            move_enabled=self.data_safety is not None and not self.data_safety.read_only,
+            parent=self,
+        )
+        if choice.exec() != QDialog.DialogCode.Accepted:
+            return
+        selected = QFileDialog.getExistingDirectory(
+            self, "Choose FlowTrack Data Folder", str(self.data_directory.parent)
+        )
+        if not selected:
+            return
+        destination = Path(selected)
+        try:
+            if self.relocation.is_current(destination):
+                QMessageBox.information(self, "Data Location Unchanged",
+                                        "That folder is already the current data location.")
+                return
+            if choice.move_selected:
+                destination = self.relocation.validate_move_destination(destination)
+                if not self._confirm_move(destination):
+                    return
+                prepared = self.relocation.prepare_move(destination)
+                self._commit(prepared, None)
+            else:
+                destination = self.relocation.validate_existing(destination)
+                if not self._confirm_existing(destination):
+                    return
+                self._commit(None, destination)
+        except DataLocationError as error:
+            QMessageBox.warning(self, "Data Location Not Changed", str(error))
+
+    def _commit(self, move: PreparedMove | None, existing: Path | None) -> None:
+        if self._commit_change is not None:
+            self._commit_change(move, existing)
+        elif move is not None:
+            self.relocation.complete_move(move)
+        elif existing is not None:
+            self.relocation.adopt_existing(existing)
+        if move is not None:
+            new_path = move.destination
+            message = (f"FlowTrack has safely copied your data to:\n\n{new_path}\n\n"
+                       f"Your previous data remains at:\n\n{self.data_directory}\n\n"
+                       "FlowTrack will now close. Reopen it to continue using the new location.")
+        else:
+            new_path = existing
+            message = (f"FlowTrack will use:\n\n{new_path}\n\nYour current data remains unchanged at:\n\n"
+                       f"{self.data_directory}\n\nFlowTrack will now close. Reopen it to continue.")
+        QMessageBox.information(self, "Data Location Changed", message)
+        self.restart_requested.emit()
+
+    def _confirm_move(self, destination: Path) -> bool:
+        message = (f"FlowTrack will safely copy your current data from:\n\n{self.data_directory}\n\n"
+                   f"to:\n\n{destination}\n\nYour original data will remain in its current "
+                   "location as a safety copy.\n\nFlowTrack will close after the copy and use the "
+                   "new location when you reopen it.")
+        return self._confirmation("Move FlowTrack Data?", message, "Move Data")
+
+    def _confirm_existing(self, destination: Path) -> bool:
+        message = (f"FlowTrack will switch to:\n\n{destination}\n\nYour current FlowTrack data "
+                   f"will remain unchanged at:\n\n{self.data_directory}\n\nFlowTrack will close and use "
+                   "the selected dataset when reopened.")
+        return self._confirmation("Use Existing FlowTrack Data?", message, "Use This Data")
+
+    def _confirmation(self, title: str, message: str, accept_text: str) -> bool:
+        dialog = QMessageBox(QMessageBox.Icon.Question, title, message, parent=self)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        dialog.button(QMessageBox.StandardButton.Ok).setText(accept_text)
+        dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        dialog.setEscapeButton(QMessageBox.StandardButton.Cancel)
+        return QMessageBox.StandardButton(dialog.exec()) == QMessageBox.StandardButton.Ok
 
     def refresh_backups(self) -> None:
         self._backups = self.data_safety.list_backups() if self.data_safety else []

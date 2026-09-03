@@ -5,7 +5,9 @@ import pytest
 pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 from flowtrack.infrastructure.backup import BackupInfo, BackupReason, IntegrityResult
-from flowtrack.ui.views.settings import SettingsView
+from PySide6.QtWidgets import QDialog, QMessageBox
+
+from flowtrack.ui.views.settings import ChangeDataLocationDialog, SettingsView
 
 
 class Safety:
@@ -34,3 +36,36 @@ def test_settings_disables_mutating_actions_in_read_only_mode(application, tmp_p
     view.backup_table.selectRow(0)
     assert not view.backup_now_button.isEnabled()
     assert not view.restore_button.isEnabled()
+
+
+def test_settings_displays_active_location_and_change_action(application, tmp_path):
+    view = SettingsView(tmp_path, Safety([]))
+    assert view.data_location_label.text() == str(tmp_path)
+    assert view.change_location_button.text() == "Change Data Location…"
+
+
+def test_change_dialog_requires_explicit_mode_and_respects_read_only(application):
+    writable = ChangeDataLocationDialog(move_enabled=True)
+    assert writable.move_option.isChecked()
+    assert writable.existing_option.isEnabled()
+    read_only = ChangeDataLocationDialog(move_enabled=False)
+    assert not read_only.move_option.isEnabled()
+    assert read_only.existing_option.isChecked()
+
+
+def test_confirmations_default_to_cancel_and_escape(application, tmp_path, monkeypatch):
+    view = SettingsView(tmp_path, Safety([]))
+    observed = []
+
+    def cancel(dialog):
+        observed.append((dialog.windowTitle(), dialog.defaultButton(), dialog.escapeButton()))
+        return QMessageBox.StandardButton.Cancel
+
+    monkeypatch.setattr(QMessageBox, "exec", cancel)
+    assert not view._confirm_move(tmp_path / "new")
+    assert not view._confirm_existing(tmp_path / "old")
+    assert [item[0] for item in observed] == [
+        "Move FlowTrack Data?", "Use Existing FlowTrack Data?"
+    ]
+    assert all(item[1].text() == "Cancel" and item[2].text() == "Cancel"
+               for item in observed)

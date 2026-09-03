@@ -3,6 +3,7 @@
 import logging
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QTimer
 from PySide6.QtWidgets import QApplication
@@ -15,6 +16,9 @@ from flowtrack.infrastructure.dataset import DatasetPaths, resolve_saved_or_lega
 from flowtrack.infrastructure.lease import HEARTBEAT_INTERVAL_MS
 from flowtrack.application.startup import StartupSafetyError, open_dataset
 from flowtrack.application.data_safety import DataSafetyService
+from flowtrack.application.data_location import (
+    DataLocationError, DatasetRelocationService, PreparedMove,
+)
 from flowtrack.infrastructure.backup import BackupManager
 from flowtrack.persistence.database import session_factory
 from flowtrack.application.task_execution import TaskExecutionService
@@ -67,11 +71,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
         BackupManager(paths), read_only=dataset_session.read_only,
         close_connections=dataset_session.engine.dispose,
     )
-    window = MainWindow(
-        settings, TaskExecutionService(factory), TaskQueryService(factory),
-        data_directory=paths.root, read_only=dataset_session.read_only,
-        data_safety=data_safety,
-    )
     heartbeat = QTimer(application)
     heartbeat.setInterval(HEARTBEAT_INTERVAL_MS)
     failures = 0
@@ -97,6 +96,29 @@ def main(arguments: Sequence[str] | None = None) -> int:
         heartbeat.timeout.connect(refresh_lease)
         heartbeat.start()
         logger.info("Dataset heartbeat started")
+
+    relocation = DatasetRelocationService(paths.root, settings, data_safety)
+
+    def commit_data_location(move: PreparedMove | None, existing: Path | None) -> None:
+        """Close all ownership state before copying or committing a restart switch."""
+        heartbeat.stop()
+        dataset_session.close()
+        try:
+            if move is not None:
+                relocation.complete_move(move)
+            elif existing is not None:
+                relocation.adopt_existing(existing)
+        except DataLocationError:
+            # The running service graph is deliberately not reopened or hot-swapped.
+            # Let Settings present the error, then quit through normal Qt cleanup.
+            QTimer.singleShot(0, application.quit)
+            raise
+
+    window = MainWindow(
+        settings, TaskExecutionService(factory), TaskQueryService(factory),
+        data_directory=paths.root, read_only=dataset_session.read_only,
+        data_safety=data_safety, commit_data_location=commit_data_location,
+    )
 
     def cleanup() -> None:
         heartbeat.stop()
