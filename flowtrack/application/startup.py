@@ -11,6 +11,7 @@ from typing import Callable
 from sqlalchemy import Engine
 
 from flowtrack.infrastructure.dataset import DatasetPaths
+from flowtrack.infrastructure.conflicts import ConflictScanResult, scan_dataset_conflicts
 from flowtrack.infrastructure.lease import LeaseState, LeaseStore
 from flowtrack.infrastructure.locking import DatasetLock
 from flowtrack.infrastructure.backup import (
@@ -18,6 +19,7 @@ from flowtrack.infrastructure.backup import (
 )
 from flowtrack.persistence.database import (
     create_database_engine, migrate_database, migration_required,
+    configure_sqlite_journal, JournalConfigurationError,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,7 @@ class DatasetSession:
 
 
 Decision = Callable[[LeaseState], StartupChoice]
+ConflictDecision = Callable[[ConflictScanResult], bool]
 
 
 def open_dataset(
@@ -71,9 +74,18 @@ def open_dataset(
     now: datetime | None = None,
     backup_manager_factory: Callable[[DatasetPaths], BackupManager] = BackupManager,
     needs_migration: Callable[[Path], bool] = migration_required,
+    decide_conflicts: ConflictDecision | None = None,
+    conflict_scanner: Callable[[DatasetPaths], ConflictScanResult] = scan_dataset_conflicts,
 ) -> DatasetSession | None:
     """Open a dataset only after the caller explicitly resolves safety states."""
     paths.initialise()
+    conflicts = conflict_scanner(paths)
+    if conflicts.has_conflicts:
+        if decide_conflicts is None or not decide_conflicts(conflicts):
+            logger.warning("User exited after conflict warning")
+            return None
+        logger.warning("User explicitly continued after conflict warning: %s",
+                       ", ".join(item.filename for item in conflicts.candidates))
     identity = instance_id or str(uuid.uuid4())
     lease = LeaseStore(paths.session_lease)
     evaluation = lease.evaluate(identity, now=now)
@@ -121,6 +133,10 @@ def open_dataset(
                     "FlowTrack could not create the required migration backup. The database "
                     "was not migrated."
                 ) from error
+        try:
+            configure_sqlite_journal(paths.database)
+        except JournalConfigurationError as error:
+            raise StartupSafetyError(str(error)) from error
         migrate(paths.database)
         database_ready = paths.database.is_file() and paths.database.stat().st_size > 0
         if database_ready and not check_integrity(paths.database).ok:

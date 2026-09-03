@@ -39,9 +39,25 @@ with transaction(factory) as session:
     Repository(session, Project).add(Project(name="Example"))
 ```
 
-SQLite foreign-key enforcement is enabled for every application engine. No WAL
-journal mode is selected by M1; cloud-folder durability and locking decisions
-remain explicitly deferred to M8.
+SQLite foreign-key enforcement is enabled for every application engine.
+
+## Synchronised folders and portability
+
+FlowTrack uses SQLite as a portable, single-writer database, not as a distributed
+database. OneDrive and similar folders are supported defensively: close FlowTrack
+on one computer and allow synchronisation to finish before opening that dataset
+on another. Cleanly closed datasets and standalone backups are intended to move
+between macOS and Windows.
+
+At startup FlowTrack heuristically warns about FlowTrack-like alternate database
+files. It never automatically merges, deletes, renames, or chooses between
+conflict copies; users must preserve and resolve them manually. Detection cannot
+guarantee that every sync-provider conflict name will be recognised.
+
+Canonical databases explicitly use SQLite `journal_mode=DELETE`,
+`synchronous=FULL`, and foreign keys. DELETE mode is preferred over WAL because a
+sync provider could otherwise observe the database, WAL, and shared-memory files
+independently. This prioritises durability and recoverability over throughput.
 
 ## Local backups and restore
 

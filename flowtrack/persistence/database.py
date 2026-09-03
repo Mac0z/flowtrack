@@ -1,5 +1,7 @@
 """Database engine, migration, and transaction lifecycle helpers."""
 
+import logging
+import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,6 +12,40 @@ from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
+
+logger = logging.getLogger(__name__)
+
+
+class JournalConfigurationError(RuntimeError):
+    """SQLite could not safely enter FlowTrack's conservative journal mode."""
+
+
+def configure_sqlite_journal(path: Path) -> None:
+    """Safely select DELETE journalling at a boundary with no app connections."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=5)
+    try:
+        current = str(connection.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+        logger.info("Detected SQLite journal mode for %s: %s", path, current)
+        if current == "wal":
+            checkpoint = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint is None or int(checkpoint[0]) != 0:
+                raise JournalConfigurationError(
+                    "FlowTrack could not safely checkpoint the existing WAL database."
+                )
+        selected = str(connection.execute("PRAGMA journal_mode=DELETE").fetchone()[0]).lower()
+        if selected != "delete":
+            raise JournalConfigurationError(
+                f"SQLite retained unsupported journal mode {selected!r}."
+            )
+        connection.execute("PRAGMA synchronous=FULL")
+        logger.info("SQLite journal configuration selected DELETE with synchronous FULL")
+    except sqlite3.Error as error:
+        raise JournalConfigurationError(
+            "FlowTrack could not safely configure SQLite journalling."
+        ) from error
+    finally:
+        connection.close()
 
 
 def database_url(path: Path) -> str:
@@ -23,7 +59,7 @@ def create_database_engine(path: Path, *, echo: bool = False, read_only: bool = 
         # SQLite URI mode enforces read-only access below the application layer.
         url = f"sqlite:///file:{path.resolve().as_posix()}?mode=ro&uri=true"
     else:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        configure_sqlite_journal(path)
         url = database_url(path)
     engine = create_engine(url, echo=echo)
 
@@ -31,6 +67,7 @@ def create_database_engine(path: Path, *, echo: bool = False, read_only: bool = 
     def enable_foreign_keys(dbapi_connection: object, _connection_record: object) -> None:
         cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA synchronous=FULL")
         cursor.close()
 
     return engine
