@@ -8,12 +8,23 @@ from collections.abc import Iterable, Sequence
 from uuid import UUID
 
 from flowtrack.application.task_queries import TaskRow
+from flowtrack.domain.enums import TaskStatus
 
 
 class GanttZoom(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
+
+
+class GanttInteraction(StrEnum):
+    """Mutually exclusive pointer interactions supported by the timeline."""
+
+    NONE = ""
+    DEPENDENCY = "dependency"
+    RESIZE_START = "resize_start"
+    RESIZE_DUE = "resize_due"
+    MOVE = "move"
 
 
 PIXELS_PER_DAY = {GanttZoom.DAY: 42.0, GanttZoom.WEEK: 18.0, GanttZoom.MONTH: 6.0}
@@ -51,6 +62,17 @@ class ConnectorGeometry:
     predecessor_id: UUID
     successor_id: UUID
     points: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DependencyHandleGeometry:
+    """Dependency handle in viewport coordinates, including its hit target."""
+
+    centre_x: float
+    centre_y: float
+    hit_left: float
+    hit_top: float
+    hit_size: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +175,53 @@ def task_bar_geometry(task: TaskRow, timeline: TimelineRange, zoom: GanttZoom) -
     width = ((last - first).days + 1) * pixels_per_day(zoom)
     progress = max(0.0, min(100.0, float(task.progress)))
     return BarGeometry(date_to_x(first, timeline, zoom), width, width * progress / 100.0, False)
+
+
+def dependency_source_eligible(task: TaskRow) -> bool:
+    """Direct Gantt creation requires a stable dated anchor and an active source."""
+    return (task.start_date is not None or task.due_date is not None) and task.status not in {
+        TaskStatus.COMPLETE, TaskStatus.CANCELLED,
+    }
+
+
+def dependency_target_eligible(source: TaskRow, target: TaskRow) -> bool:
+    """Apply cheap UI checks; the application service remains cycle authority."""
+    return (
+        source.id != target.id
+        and target.status not in {TaskStatus.COMPLETE, TaskStatus.CANCELLED}
+        and source.id not in target.predecessor_ids
+    )
+
+
+def dependency_handle_geometry(
+    task: TaskRow, timeline: TimelineRange, zoom: GanttZoom, *, row_index: int,
+    row_height: float, header_height: float = 0, horizontal_scroll: float = 0,
+    vertical_scroll: float = 0, gap: float = 9, hit_size: float = 18,
+    milestone_half_width: float = 7,
+) -> DependencyHandleGeometry | None:
+    """Place a forgiving handle just beyond a dated bar or milestone's right edge."""
+    if not dependency_source_eligible(task):
+        return None
+    bar = task_bar_geometry(task, timeline, zoom)
+    if bar is None:
+        return None
+    task_end = bar.x + (milestone_half_width if bar.milestone else bar.width)
+    centre_x = task_end + gap - horizontal_scroll
+    centre_y = header_height + (row_index + .5) * row_height - vertical_scroll
+    return DependencyHandleGeometry(
+        centre_x, centre_y, centre_x - hit_size / 2, centre_y - hit_size / 2, hit_size,
+    )
+
+
+def visible_row_at_y(
+    rows: Sequence[TaskRow], viewport_y: float, *, header_height: float,
+    row_height: float, vertical_scroll: float = 0,
+) -> TaskRow | None:
+    """Return only a row present in the supplied (already hierarchy-filtered) model."""
+    if viewport_y < header_height:
+        return None
+    index = int((viewport_y - header_height + vertical_scroll) // row_height)
+    return rows[index] if 0 <= index < len(rows) else None
 
 
 def visible_hierarchy(tasks: Sequence[TaskRow], collapsed: set[UUID]) -> list[TaskRow]:

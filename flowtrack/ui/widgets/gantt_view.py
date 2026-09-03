@@ -14,17 +14,19 @@ from PySide6.QtWidgets import (
 )
 
 from flowtrack.application.projects import ProjectQueryService, ProjectSummary
-from flowtrack.application.task_execution import TaskExecutionService
+from flowtrack.application.task_execution import TaskExecutionService, TaskValidationError
 from flowtrack.application.task_queries import TaskRow
 from flowtrack.domain.enums import TaskStatus
 from flowtrack.infrastructure.settings import ApplicationSettings
 from flowtrack.ui.theme import get_theme
 from flowtrack.ui.theme.status import status_color
 from flowtrack.ui.widgets.gantt_timeline import (
-    ConnectorGeometry, DateChange, GanttZoom, TimelineRange, calculate_timeline_range, collapsed_descendant_dates,
-    date_to_x, day_header_labels, day_header_month_segments, dependency_connectors, drag_days,
+    ConnectorGeometry, DateChange, GanttInteraction, GanttZoom, TimelineRange, calculate_timeline_range,
+    collapsed_descendant_dates, date_to_x, day_header_labels, day_header_month_segments,
+    dependency_connectors, dependency_handle_geometry, dependency_source_eligible,
+    dependency_target_eligible, drag_days,
     move_task_dates, parent_ids, pixels_per_day, resize_task_due, resize_task_start,
-    task_bar_geometry, visible_hierarchy,
+    task_bar_geometry, visible_hierarchy, visible_row_at_y,
 )
 
 ROW_HEIGHT = 38
@@ -33,6 +35,7 @@ DAY_HEADER_HEIGHT = 66
 MILESTONE_SIZE = 7
 DRAG_THRESHOLD = 4
 EDGE_HIT_WIDTH = 6
+DEPENDENCY_HANDLE_RADIUS = 4
 
 
 def paint_dependency_connector(
@@ -61,6 +64,20 @@ def paint_dependency_connector(
     painter.restore()
 
 
+def paint_temporary_dependency_connector(
+    painter: QPainter, start: QPointF, end: QPointF, colour: QColor,
+) -> None:
+    """Paint a lightweight drag preview without leaking painter state."""
+    painter.save()
+    painter.setPen(QPen(colour, 1.5, Qt.PenStyle.DashLine))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    path = QPainterPath()
+    path.moveTo(start)
+    path.lineTo(end)
+    painter.drawPath(path)
+    painter.restore()
+
+
 def task_tooltip(task: TaskRow) -> str:
     parts = [task.title, f"Status: {task.status.value.replace('_', ' ').title()}",
              f"Start: {task.start_date.isoformat() if task.start_date else '—'}",
@@ -75,6 +92,7 @@ class GanttTimeline(QAbstractScrollArea):
     """One lightweight painting surface for all visible timeline rows."""
     task_activated = Signal(object)
     date_change_requested = Signal(object, object, str)
+    dependency_requested = Signal(object, object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -86,9 +104,13 @@ class GanttTimeline(QAbstractScrollArea):
         self.editable_ids: set[UUID] = set()
         self._press_task: TaskRow | None = None
         self._press_x = 0.0
-        self._interaction = ""
+        self._interaction = GanttInteraction.NONE
         self._dragging = False
         self._preview: DateChange | None = None
+        self._hover_task_id: UUID | None = None
+        self._dependency_pointer: QPointF | None = None
+        self._dependency_target: TaskRow | None = None
+        self._dependency_target_valid = False
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -115,39 +137,67 @@ class GanttTimeline(QAbstractScrollArea):
         super().resizeEvent(event)
         self.set_rows(self.rows, self.timeline_range, self.zoom, editable_ids=self.editable_ids)
 
-    def _bar_hit(self, task: TaskRow, viewport_x: float) -> str:
+    def _handle_for(self, task: TaskRow):
+        # Collapsed, undated parents may receive a display-only summary bar; do
+        # not treat that calculated span as a dependency anchor.
         if task.id not in self.editable_ids:
-            return ""
+            return None
+        try:
+            index = next(index for index, row in enumerate(self.rows) if row.id == task.id)
+        except StopIteration:
+            return None
+        return dependency_handle_geometry(
+            task, self.timeline_range, self.zoom, row_index=index, row_height=ROW_HEIGHT,
+            header_height=self.header_height, horizontal_scroll=self.horizontalScrollBar().value(),
+            vertical_scroll=self.verticalScrollBar().value(),
+        )
+
+    def _handle_hit(self, task: TaskRow, position: QPointF) -> bool:
+        handle = self._handle_for(task)
+        return bool(handle and handle.hit_left <= position.x() <= handle.hit_left + handle.hit_size
+                    and handle.hit_top <= position.y() <= handle.hit_top + handle.hit_size)
+
+    def _bar_hit(self, task: TaskRow, viewport_x: float) -> GanttInteraction:
+        if task.id not in self.editable_ids:
+            return GanttInteraction.NONE
         geometry = task_bar_geometry(task, self.timeline_range, self.zoom)
         if geometry is None:
-            return ""
+            return GanttInteraction.NONE
         content_x = viewport_x + self.horizontalScrollBar().value()
         if geometry.milestone:
-            return "move" if abs(content_x - geometry.x) <= MILESTONE_SIZE + 3 else ""
+            return GanttInteraction.MOVE if abs(content_x - geometry.x) <= MILESTONE_SIZE + 3 else GanttInteraction.NONE
         if not geometry.x - 1 <= content_x <= geometry.x + geometry.width + 1:
-            return ""
+            return GanttInteraction.NONE
         if content_x <= geometry.x + EDGE_HIT_WIDTH:
-            return "resize_start"
+            return GanttInteraction.RESIZE_START
         if content_x >= geometry.x + geometry.width - EDGE_HIT_WIDTH:
-            return "resize_due"
-        return "move"
+            return GanttInteraction.RESIZE_DUE
+        return GanttInteraction.MOVE
 
     def _row_at(self, position: QPoint) -> TaskRow | None:
-        if position.y() < self.header_height:
-            return None
-        index = (position.y() - self.header_height + self.verticalScrollBar().value()) // ROW_HEIGHT
-        return self.rows[index] if 0 <= index < len(self.rows) else None
+        return visible_row_at_y(self.rows, position.y(), header_height=self.header_height,
+                                row_height=ROW_HEIGHT, vertical_scroll=self.verticalScrollBar().value())
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         task = self._row_at(event.position().toPoint())
+        if (self._press_task and event.buttons() & Qt.MouseButton.LeftButton
+                and self._interaction is GanttInteraction.DEPENDENCY):
+            self._dragging = True
+            self._dependency_pointer = event.position()
+            self._dependency_target = task
+            self._dependency_target_valid = bool(
+                task and dependency_target_eligible(self._press_task, task))
+            self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+            self.viewport().update()
+            return
         if self._press_task and event.buttons() & Qt.MouseButton.LeftButton and self._interaction:
             delta_pixels = event.position().x() - self._press_x
             if abs(delta_pixels) >= DRAG_THRESHOLD:
                 self._dragging = True
                 days = drag_days(delta_pixels, self.zoom)
-                if self._interaction == "move":
+                if self._interaction is GanttInteraction.MOVE:
                     self._preview = move_task_dates(self._press_task.start_date, self._press_task.due_date, days)
-                elif self._interaction == "resize_start":
+                elif self._interaction is GanttInteraction.RESIZE_START:
                     self._preview = resize_task_start(self._press_task.start_date, self._press_task.due_date, days)
                 else:
                     self._preview = resize_task_due(self._press_task.start_date, self._press_task.due_date, days)
@@ -155,16 +205,24 @@ class GanttTimeline(QAbstractScrollArea):
                     self.viewport().setToolTip(self._preview_text(self._preview))
                 self.viewport().update()
             return
-        interaction = self._bar_hit(task, event.position().x()) if task else ""
-        self.viewport().setCursor(Qt.CursorShape.SizeHorCursor if interaction.startswith("resize") else
-                                  Qt.CursorShape.OpenHandCursor if interaction == "move" else Qt.CursorShape.ArrowCursor)
+        hover_task_id = task.id if task else None
+        if hover_task_id != self._hover_task_id:
+            self._hover_task_id = hover_task_id
+            self.viewport().update()
+        handle_hit = bool(task and self._handle_hit(task, event.position()))
+        interaction = self._bar_hit(task, event.position().x()) if task else GanttInteraction.NONE
+        self.viewport().setCursor(Qt.CursorShape.PointingHandCursor if handle_hit else
+            Qt.CursorShape.SizeHorCursor if interaction in {GanttInteraction.RESIZE_START, GanttInteraction.RESIZE_DUE} else
+            Qt.CursorShape.OpenHandCursor if interaction is GanttInteraction.MOVE else Qt.CursorShape.ArrowCursor)
         self.viewport().setToolTip(task_tooltip(task) if task and (task.start_date or task.due_date) else "")
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         task = self._row_at(event.position().toPoint())
         if task and event.button() == Qt.MouseButton.LeftButton:
-            self._interaction = self._bar_hit(task, event.position().x())
+            # Explicit priority: dependency handle, resize edge, then bar move.
+            self._interaction = (GanttInteraction.DEPENDENCY if self._handle_hit(task, event.position())
+                                 else self._bar_hit(task, event.position().x()))
             self._press_task = task
             self._press_x = event.position().x()
             self._dragging = False
@@ -174,11 +232,17 @@ class GanttTimeline(QAbstractScrollArea):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         task, change, interaction = self._press_task, self._preview, self._interaction
         dragged = self._dragging
-        self._press_task = None; self._preview = None; self._interaction = ""; self._dragging = False
+        target = self._dependency_target if self._dependency_target_valid else None
+        self._press_task = None; self._preview = None; self._interaction = GanttInteraction.NONE; self._dragging = False
+        self._dependency_pointer = None; self._dependency_target = None; self._dependency_target_valid = False
+        self.viewport().unsetCursor()
         self.viewport().update()
         if event.button() == Qt.MouseButton.LeftButton and task:
-            if dragged and change and (change.start_date, change.due_date) != (task.start_date, task.due_date):
-                self.date_change_requested.emit(task, change, interaction)
+            if interaction is GanttInteraction.DEPENDENCY:
+                if dragged and target:
+                    self.dependency_requested.emit(task.id, target.id)
+            elif dragged and change and (change.start_date, change.due_date) != (task.start_date, task.due_date):
+                self.date_change_requested.emit(task, change, interaction.value)
             elif not dragged:
                 self.task_activated.emit(task.id)
         super().mouseReleaseEvent(event)
@@ -208,6 +272,10 @@ class GanttTimeline(QAbstractScrollArea):
             y = header_height + index * ROW_HEIGHT - vertical
             if y + ROW_HEIGHT < header_height or y > height: continue
             if index % 2: painter.fillRect(0, y, width, ROW_HEIGHT, QColor(colors.surface_secondary))
+            if self._interaction is GanttInteraction.DEPENDENCY and self._dependency_target is task:
+                target_colour = QColor(colors.accent if self._dependency_target_valid else colors.danger)
+                target_colour.setAlpha(38)
+                painter.fillRect(0, y, width, ROW_HEIGHT, target_colour)
             painter.setPen(QPen(QColor(colors.divider), 1)); painter.drawLine(0, y + ROW_HEIGHT - 1, width, y + ROW_HEIGHT - 1)
             painted_task = task
             if self._press_task and task.id == self._press_task.id and self._preview:
@@ -231,12 +299,29 @@ class GanttTimeline(QAbstractScrollArea):
                     painter.setPen(QPen(bar_color.lighter(150), 2))
                     painter.drawLine(int(x + 2), int(centre_y - 6), int(x + 2), int(centre_y + 6))
                     painter.drawLine(int(x + geometry.width - 2), int(centre_y - 6), int(x + geometry.width - 2), int(centre_y + 6))
+            if (task.id == self._hover_task_id or
+                    self._interaction is GanttInteraction.DEPENDENCY and self._press_task is task):
+                handle = self._handle_for(task)
+                if handle:
+                    painter.setPen(QPen(QColor(colors.surface_primary), 2))
+                    painter.setBrush(QColor(colors.accent))
+                    painter.drawEllipse(QPointF(handle.centre_x, handle.centre_y),
+                                        DEPENDENCY_HANDLE_RADIUS, DEPENDENCY_HANDLE_RADIUS)
         # Dependencies are painted as one lightweight overlay and only for visible rows.
         connector_colour = QColor(colors.text_muted)
         for connector in dependency_connectors(self.rows, self.timeline_range, self.zoom,
                 row_height=ROW_HEIGHT, header_height=header_height,
                 horizontal_scroll=horizontal, vertical_scroll=vertical):
             paint_dependency_connector(painter, connector, connector_colour)
+        if (self._interaction is GanttInteraction.DEPENDENCY and self._press_task
+                and self._dependency_pointer):
+            handle = self._handle_for(self._press_task)
+            if handle:
+                preview_colour = QColor(colors.accent if self._dependency_target_valid else colors.text_muted)
+                paint_temporary_dependency_connector(
+                    painter, QPointF(handle.centre_x, handle.centre_y),
+                    self._dependency_pointer, preview_colour,
+                )
         # Calendar grid and today marker are deliberately drawn over row backgrounds.
         step = {GanttZoom.DAY: 1, GanttZoom.WEEK: 7, GanttZoom.MONTH: 1}[self.zoom]
         cursor = self.timeline_range.start
@@ -333,6 +418,7 @@ class GanttView(QWidget):
         self.task_table.cellClicked.connect(self._cell_clicked); self.task_table.cellDoubleClicked.connect(self._activate_left)
         self.timeline = GanttTimeline(); self.timeline.task_activated.connect(self.task_activated)
         self.timeline.date_change_requested.connect(self.request_date_change)
+        self.timeline.dependency_requested.connect(self.request_dependency)
         self.splitter.addWidget(self.task_table); self.splitter.addWidget(self.timeline); self.splitter.setSizes([390,700]); self.splitter.setStretchFactor(1,1); root.addWidget(self.splitter,1)
         left_scroll, right_scroll = self.task_table.verticalScrollBar(), self.timeline.verticalScrollBar()
         left_scroll.valueChanged.connect(right_scroll.setValue); right_scroll.valueChanged.connect(left_scroll.setValue)
@@ -399,6 +485,32 @@ class GanttView(QWidget):
             QMessageBox.warning(self, "Could not change task dates", f"The task dates were not changed.\n\n{exc}")
             self.refresh(); return False
         self.refresh(); self.data_changed.emit(); return True
+
+    def request_dependency(self, predecessor_id: UUID, successor_id: UUID) -> bool:
+        """Persist one direct drag through the authoritative application service."""
+        if self.task_service is None:
+            return False
+        horizontal = self.timeline.horizontalScrollBar().value()
+        vertical = self.timeline.verticalScrollBar().value()
+        try:
+            self.task_service.add_dependency(predecessor_id, successor_id)
+        except TaskValidationError:
+            QMessageBox.warning(
+                self, "Could not add dependency",
+                "The dependency could not be added because it would be invalid or circular.",
+            )
+            return False
+        except Exception:
+            QMessageBox.warning(
+                self, "Could not add dependency",
+                "The dependency could not be saved. Your tasks were not changed.",
+            )
+            return False
+        self.refresh()
+        self.timeline.horizontalScrollBar().setValue(horizontal)
+        self.timeline.verticalScrollBar().setValue(vertical)
+        self.data_changed.emit()
+        return True
 
     def _cell_clicked(self, row: int, column: int) -> None:
         task = self.visible_rows[row]
