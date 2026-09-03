@@ -112,13 +112,18 @@ class TaskExecutionService:
 
     def add_dependency(self, predecessor_id: UUID, successor_id: UUID) -> UUID:
         with transaction(self._factory) as session:
-            self._require_task(session, predecessor_id); self._require_task(session, successor_id)
+            predecessor = self._require_task(session, predecessor_id)
+            successor = self._require_task(session, successor_id)
             existing = session.scalar(select(Dependency).where(
                 Dependency.predecessor_task_id == predecessor_id,
                 Dependency.successor_task_id == successor_id,
             ))
             if existing is not None:
                 return existing.id
+            inactive = {TaskStatus.COMPLETE, TaskStatus.CANCELLED}
+            if predecessor.status in inactive or successor.status in inactive:
+                raise TaskValidationError(
+                    "Completed or cancelled tasks cannot be used for new dependencies.")
             edges = list(session.execute(select(Dependency.predecessor_task_id,
                                                 Dependency.successor_task_id)).all())
             try:

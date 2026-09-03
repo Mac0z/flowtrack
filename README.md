@@ -69,3 +69,12 @@ and finally the persisted sibling `sort_order` and stable UUID. Overdue checks
 use the computer's local calendar date. Search matches task titles and
 descriptions without case sensitivity; filter preferences are stored in Qt
 settings while task data remains in SQLite.
+
+## Gantt dependency creation
+
+The Gantt supports direct Finish-to-Start dependency creation by dragging the
+hover handle at the right of a dated, active task onto another visible task
+row. Complete and Cancelled tasks cannot be sources or targets, and the Task
+Inspector remains the dependency editor for undated source tasks. Horizontal
+auto-scroll during a dependency drag is intentionally deferred as future
+polish; users can scroll the timeline before starting a drag.
