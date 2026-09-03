@@ -22,9 +22,9 @@ class MyTasksView(QWidget):
     data_changed = Signal()
 
     def __init__(self, service: TaskExecutionService, queries: TaskQueryService,
-                 settings: ApplicationSettings, parent=None) -> None:
+                 settings: ApplicationSettings, parent=None, *, read_only: bool = False) -> None:
         super().__init__(parent)
-        self.service, self.queries, self.settings = service, queries, settings
+        self.service, self.queries, self.settings, self.read_only = service, queries, settings, read_only
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(10)
@@ -159,7 +159,7 @@ class MyTasksView(QWidget):
         self.task_selected.emit(self.table.item(row, 1).data(Qt.ItemDataRole.UserRole))
 
     def _clicked(self, row: int, column: int) -> None:
-        if column != 0: return
+        if column != 0 or self.read_only: return
         item = self.table.item(row, 0)
         try:
             self.service.complete_task(item.data(Qt.ItemDataRole.UserRole), item.text() != "✓")

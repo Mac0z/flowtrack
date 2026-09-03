@@ -407,6 +407,8 @@ class GanttView(QWidget):
         self.zoom_group = QButtonGroup(self); self.zoom_group.setExclusive(True); self.zoom_buttons: dict[GanttZoom,QPushButton] = {}
         for zoom in GanttZoom:
             button = QPushButton(zoom.value.title()); button.setCheckable(True); button.setProperty("compact", True)
+            button.setAccessibleName(f"Gantt zoom: {zoom.value.title()}")
+            button.setToolTip(f"Show the timeline by {zoom.value}")
             button.clicked.connect(lambda _checked=False, selected=zoom: self.set_zoom(selected)); self.zoom_group.addButton(button); toolbar.addWidget(button); self.zoom_buttons[zoom] = button
         self.zoom_buttons[self.zoom].setChecked(True); root.addLayout(toolbar)
         self.splitter = QSplitter(Qt.Orientation.Horizontal); self.splitter.setChildrenCollapsible(False)
@@ -469,7 +471,8 @@ class GanttView(QWidget):
             lines.append(f"Due: {self._format_date(task.due_date)} → {self._format_date(change.due_date)}")
         dialog = QMessageBox(QMessageBox.Icon.Question, "Confirm task dates", "\n".join(lines), parent=self)
         dialog.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
-        dialog.setDefaultButton(QMessageBox.StandardButton.Ok); dialog.setEscapeButton(QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(QMessageBox.StandardButton.Cancel); dialog.setEscapeButton(QMessageBox.StandardButton.Cancel)
+        dialog.button(QMessageBox.StandardButton.Ok).setText("Change Dates")
         return QMessageBox.StandardButton(dialog.exec()) == QMessageBox.StandardButton.Ok
 
     @staticmethod
@@ -481,8 +484,9 @@ class GanttView(QWidget):
             self._rebuild(); return False
         try:
             self.task_service.update_task(task.id, start_date=change.start_date, due_date=change.due_date)
-        except Exception as exc:
-            QMessageBox.warning(self, "Could not change task dates", f"The task dates were not changed.\n\n{exc}")
+        except Exception:
+            QMessageBox.warning(self, "Could not change task dates",
+                                "FlowTrack could not save the new dates. Your task was not changed; try again.")
             self.refresh(); return False
         self.refresh(); self.data_changed.emit(); return True
 

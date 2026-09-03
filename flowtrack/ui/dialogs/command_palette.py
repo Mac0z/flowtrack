@@ -38,9 +38,13 @@ class CommandPalette(QDialog):
         self.command_field.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
     def _filter(self, query: str) -> None:
+        first_visible = -1
         for row in range(self.commands.count()):
             item = self.commands.item(row)
             item.setHidden(query.casefold() not in item.text().casefold())
+            if not item.isHidden() and first_visible < 0:
+                first_visible = row
+        self.commands.setCurrentRow(first_visible)
 
     def _activate(self) -> None:
         item = self.commands.currentItem()

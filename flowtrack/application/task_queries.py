@@ -152,14 +152,14 @@ class TaskQueryService:
             else:
                 roots.append(row)
 
+        # Use an explicit stack so a valid, deeply nested task hierarchy does
+        # not depend on Python's recursion limit. Each row is visited once.
         ordered: list[TaskRow] = []
-        def append_subtree(row: TaskRow) -> None:
+        stack = list(reversed(sorted(roots, key=key)))
+        while stack:
+            row = stack.pop()
             ordered.append(row)
-            for child in sorted(children.get(row.id, ()), key=key):
-                append_subtree(child)
-
-        for root in sorted(roots, key=key):
-            append_subtree(root)
+            stack.extend(reversed(sorted(children.get(row.id, ()), key=key)))
         return ordered
 
     def task_detail(self, task_id: UUID) -> dict[str, object] | None:
