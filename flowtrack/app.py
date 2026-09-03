@@ -21,7 +21,7 @@ from flowtrack.application.task_execution import TaskExecutionService
 from flowtrack.application.task_queries import TaskQueryService
 from flowtrack.ui.theme import apply_theme, get_theme
 from flowtrack.ui.windows.main_window import MainWindow
-from flowtrack.ui.dialogs.startup import choose_data_directory, decide_startup
+from flowtrack.ui.dialogs.startup import choose_data_directory, decide_startup, decide_conflicts
 
 
 def create_application(arguments: Sequence[str] | None = None) -> QApplication:
@@ -50,7 +50,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         paths = DatasetPaths(selected)
     logger.info("Selected dataset path: %s", paths.root)
     try:
-        dataset_session = open_dataset(paths, decide_startup)
+        dataset_session = open_dataset(paths, decide_startup, decide_conflicts=decide_conflicts)
     except StartupSafetyError as error:
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.critical(

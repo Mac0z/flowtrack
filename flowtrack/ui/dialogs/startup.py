@@ -2,10 +2,39 @@
 
 from pathlib import Path
 
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
 from flowtrack.application.startup import StartupChoice
 from flowtrack.infrastructure.lease import LeaseState
+from flowtrack.infrastructure.conflicts import ConflictScanResult
+
+
+def decide_conflicts(result: ConflictScanResult, parent: QWidget | None = None) -> bool:
+    """Require an explicit acknowledgement before suspicious data is opened writable."""
+    while True:
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Possible database conflict detected")
+        box.setText("FlowTrack found another file that may be a synchronisation conflict.")
+        details = [f"Canonical: {result.canonical.name}", ""]
+        details.extend(
+            f"• {item.filename} — {item.modified_utc:%Y-%m-%d %H:%M} UTC — "
+            f"{'valid SQLite' if item.sqlite_valid else 'invalid or unverified'}"
+            for item in result.candidates
+        )
+        box.setInformativeText("\n".join(details) +
+            "\n\nFlowTrack will not merge, rename, or delete either file automatically.")
+        open_folder = box.addButton("Open Data Folder", QMessageBox.ButtonRole.ActionRole)
+        proceed = box.addButton("Continue Carefully", QMessageBox.ButtonRole.DestructiveRole)
+        exit_button = box.addButton("Exit", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(exit_button)
+        box.exec()
+        if box.clickedButton() is open_folder:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(result.canonical.parent)))
+            continue
+        return box.clickedButton() is proceed
 
 
 def choose_data_directory(parent: QWidget | None = None) -> Path | None:
