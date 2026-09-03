@@ -471,7 +471,7 @@ class GanttView(QWidget):
             lines.append(f"Due: {self._format_date(task.due_date)} → {self._format_date(change.due_date)}")
         dialog = QMessageBox(QMessageBox.Icon.Question, "Confirm task dates", "\n".join(lines), parent=self)
         dialog.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
-        dialog.setDefaultButton(QMessageBox.StandardButton.Cancel); dialog.setEscapeButton(QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(QMessageBox.StandardButton.Ok); dialog.setEscapeButton(QMessageBox.StandardButton.Cancel)
         dialog.button(QMessageBox.StandardButton.Ok).setText("Change Dates")
         return QMessageBox.StandardButton(dialog.exec()) == QMessageBox.StandardButton.Ok
 

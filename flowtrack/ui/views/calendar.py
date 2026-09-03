@@ -145,7 +145,7 @@ class CalendarView(QWidget):
         dialog = QMessageBox(QMessageBox.Icon.Question, "Move task due date?",
                              f"Move {task.title} due date to {new_date:%d %b %Y}?", parent=self)
         dialog.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
-        dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(QMessageBox.StandardButton.Ok)
         dialog.setEscapeButton(QMessageBox.StandardButton.Cancel)
         dialog.button(QMessageBox.StandardButton.Ok).setText("Move Due Date")
         return QMessageBox.StandardButton(dialog.exec()) == QMessageBox.StandardButton.Ok

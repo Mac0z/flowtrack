@@ -11,8 +11,10 @@ semantics.
   lists, and tables using the existing semantic focus token.
 - Icon-only calendar navigation and inspector controls, plus Gantt zoom controls, have
   explicit accessible names and useful tooltips.
-- Calendar and Gantt date confirmations default to Cancel and use explicit action text.
-  Dependency removal also names the relationship and defaults to Cancel.
+- Routine, reversible Calendar and Gantt scheduling confirmations use explicit
+  action text, default to the affirmative action, and map Escape to Cancel.
+  Destructive confirmations retain safe defaults: dependency removal names the
+  relationship and defaults to Cancel.
 - In read-only sessions, task/project creation and editing, completion, board movement,
   calendar dragging, Gantt persistence, dependency editing, and owner/tag management
   are unavailable while navigation and inspection remain usable.
