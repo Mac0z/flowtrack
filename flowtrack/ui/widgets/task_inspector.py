@@ -8,7 +8,7 @@ from uuid import UUID
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-    QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QMessageBox, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from flowtrack.application.task_execution import TaskExecutionService, TaskValidationError
@@ -67,15 +67,18 @@ class TaskInspector(QWidget):
     saved = Signal()
     deleted = Signal()
 
-    def __init__(self, service: TaskExecutionService, queries: TaskQueryService, parent=None) -> None:
+    def __init__(self, service: TaskExecutionService, queries: TaskQueryService,
+                 parent=None, *, read_only: bool = False) -> None:
         super().__init__(parent)
-        self.service, self.queries = service, queries
+        self.service, self.queries, self.read_only = service, queries, read_only
         self.task_id: UUID | None = None
         self.setFixedWidth(390)
         layout = QVBoxLayout(self)
         top = QHBoxLayout()
         top.addWidget(QLabel("TASK INSPECTOR"))
         close = QPushButton("×")
+        close.setAccessibleName("Close task inspector")
+        close.setToolTip("Close task inspector (Esc)")
         close.clicked.connect(self.close_inspector)
         top.addWidget(close)
         layout.addLayout(top)
@@ -176,6 +179,7 @@ class TaskInspector(QWidget):
         layout.addWidget(self.error)
         buttons = QHBoxLayout()
         save, child, delete_button = QPushButton("Save"), QPushButton("Add child"), QPushButton("Delete…")
+        self.save_button, self.add_child_button, self.delete_button = save, child, delete_button
         save.clicked.connect(self.save)
         child.clicked.connect(self.add_child)
         delete_button.clicked.connect(self.request_delete)
@@ -183,6 +187,12 @@ class TaskInspector(QWidget):
             buttons.addWidget(button)
         layout.addLayout(buttons)
         layout.addStretch()
+        if read_only:
+            for widget in (self.title, self.description, self.status, self.priority, self.owner,
+                           self.start, self.due, self.progress_mode, self.progress,
+                           self.tag_editor, self.dependency_editor, save, child, delete_button):
+                widget.setEnabled(False)
+            self.setToolTip("Task details are view-only because this dataset is read-only.")
         self.hide()
 
     @staticmethod
@@ -242,7 +252,7 @@ class TaskInspector(QWidget):
         self._clear_layout(self.successors_layout)
         for task in data.predecessors:
             row = DependencyRow(task.task_id, task.title, self._dependency_context(task),
-                                removable=True, parent=self.predecessors_widget)
+                                removable=not self.read_only, parent=self.predecessors_widget)
             row.remove_requested.connect(self.remove_predecessor)
             self.predecessors_layout.addWidget(row)
         for task in data.successors:
@@ -257,7 +267,7 @@ class TaskInspector(QWidget):
             self.dependency_picker.addItem(
                 f"{task.title} — {task.project_name or 'No project'} · "
                 f"{task.status.value.replace('_', ' ').title()}", str(task.task_id))
-        enabled = bool(data.add_choices)
+        enabled = bool(data.add_choices) and not self.read_only
         self.dependency_picker.setEnabled(enabled)
         self.add_dependency_button.setEnabled(enabled)
 
@@ -279,12 +289,29 @@ class TaskInspector(QWidget):
         self.saved.emit()
 
     def remove_predecessor(self, predecessor_id: object) -> None:
-        if self.task_id is None:
+        if self.task_id is None or self.read_only:
+            return
+        task = next((item for item in self.queries.task_dependencies(self.task_id).predecessors
+                     if item.task_id == UUID(str(predecessor_id))), None)
+        title = task.title if task else "this task"
+        if not self.confirm_dependency_removal(title):
             return
         self.service.remove_dependency(UUID(str(predecessor_id)), self.task_id)
         self.error.clear()
         self._refresh_dependencies()
         self.saved.emit()
+
+    def confirm_dependency_removal(self, title: str) -> bool:
+        """Ask for an explicit, safely-defaulted destructive decision."""
+        dialog = QMessageBox(QMessageBox.Icon.Warning, "Remove Dependency",
+                             f"Remove the dependency on '{title}'? Scheduling will no longer enforce this relationship.",
+                             parent=self)
+        remove_button = dialog.addButton("Remove Dependency", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = dialog.addButton(QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(cancel_button)
+        dialog.setEscapeButton(cancel_button)
+        dialog.exec()
+        return dialog.clickedButton() is remove_button
 
     def save(self) -> None:
         if self.task_id is None:

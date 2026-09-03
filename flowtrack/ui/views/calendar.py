@@ -20,9 +20,10 @@ class CalendarView(QWidget):
     task_selected = Signal(object)
     data_changed = Signal()
 
-    def __init__(self, task_service: TaskExecutionService, queries: TaskQueryService, parent=None) -> None:
+    def __init__(self, task_service: TaskExecutionService, queries: TaskQueryService,
+                 parent=None, *, read_only: bool = False) -> None:
         super().__init__(parent)
-        self.task_service, self.queries = task_service, queries
+        self.task_service, self.queries, self.read_only = task_service, queries, read_only
         self.mode = CalendarMode.MONTH
         self.anchor = month_start(date.today())
         self._rows: list[TaskRow] = []
@@ -44,6 +45,10 @@ class CalendarView(QWidget):
         self.previous_button = QPushButton("‹")
         self.next_button = QPushButton("›")
         self.today_button = QPushButton("Today")
+        self.previous_button.setAccessibleName("Previous period")
+        self.previous_button.setToolTip("Previous period")
+        self.next_button.setAccessibleName("Next period")
+        self.next_button.setToolTip("Next period")
         self.previous_button.clicked.connect(self.previous_period)
         self.next_button.clicked.connect(self.next_period)
         self.today_button.clicked.connect(self.go_to_today)
@@ -73,6 +78,10 @@ class CalendarView(QWidget):
         root.addLayout(content, 1)
         self.error = QLabel(); self.error.setObjectName("dangerText"); self.error.setWordWrap(True); self.error.hide(); root.addWidget(self.error)
         self._populate_filters()
+        if self.read_only:
+            self.grid.setAcceptDrops(False)
+            self.unscheduled.setDragEnabled(False)
+            self.unscheduled.setToolTip("Dates cannot be changed while the dataset is read-only.")
         self.refresh()
 
     def _populate_filters(self) -> None:
@@ -138,9 +147,12 @@ class CalendarView(QWidget):
         dialog.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
         dialog.setDefaultButton(QMessageBox.StandardButton.Ok)
         dialog.setEscapeButton(QMessageBox.StandardButton.Cancel)
+        dialog.button(QMessageBox.StandardButton.Ok).setText("Move Due Date")
         return QMessageBox.StandardButton(dialog.exec()) == QMessageBox.StandardButton.Ok
 
     def request_date_change(self, task_id: UUID, new_date: date) -> bool:
+        if self.read_only:
+            return False
         task = next((row for row in self._rows if row.id == task_id), None)
         if task is None or task.due_date == new_date or not self.confirm_date_change(task, new_date):
             self.refresh()

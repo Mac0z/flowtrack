@@ -302,6 +302,10 @@ status/category meaning.
 -   Animations should be short and functional, approximately 120--200
     ms.
 -   Destructive actions require confirmation or reliable Undo.
+-   Confirmation defaults reflect the action's risk: routine, reversible
+    actions such as moving or rescheduling a task default to the affirmative
+    action, while Escape cancels without making changes. Destructive or
+    difficult-to-reverse actions default to the safest non-destructive choice.
 -   Completed work remains accessible without visually dominating active
     work.
 -   Layout must adapt cleanly to common laptop and desktop resolutions

@@ -77,8 +77,8 @@ class TaskCard(QFrame):
 class ProjectBoard(QWidget):
     """Status board backed by the project's existing query and command services."""
     task_activated=Signal(object); data_changed=Signal()
-    def __init__(self,task_service:TaskExecutionService,queries:ProjectQueryService,parent=None)->None:
-        super().__init__(parent); self.task_service=task_service; self.queries=queries; self.project_id:UUID|None=None
+    def __init__(self,task_service:TaskExecutionService,queries:ProjectQueryService,parent=None,*,read_only:bool=False)->None:
+        super().__init__(parent); self.task_service=task_service; self.queries=queries; self.project_id:UUID|None=None; self.read_only=read_only
         self.theme=get_theme(ApplicationSettings().theme_id); root=QVBoxLayout(self); root.setContentsMargins(0,0,0,0)
         tools=QHBoxLayout(); label=QLabel("Project board"); label.setStyleSheet(f"font-weight: {self.theme.typography.weight_semibold};")
         tools.addWidget(label); tools.addStretch(); self.show_cancelled=QCheckBox("Show Cancelled"); self.show_cancelled.toggled.connect(self.refresh); tools.addWidget(self.show_cancelled); root.addLayout(tools)
@@ -94,7 +94,7 @@ class ProjectBoard(QWidget):
         frame=QFrame(); frame.setObjectName("kanbanColumn")
         frame.setStyleSheet(f"QFrame#kanbanColumn {{ background: {self.theme.colors.surface_primary}; border: 1px solid {self.theme.colors.border_subtle}; border-radius: {self.theme.radii.lg}px; }}")
         layout=QVBoxLayout(frame); layout.setContentsMargins(9,10,9,9); heading=QLabel(); heading.setStyleSheet(f"color: {status_color(self.theme,status)}; font-weight: {self.theme.typography.weight_semibold};"); layout.addWidget(heading)
-        task_list=KanbanColumnList(status,self.move_task); task_list.itemClicked.connect(lambda item:self.task_activated.emit(item.data(Qt.ItemDataRole.UserRole))); task_list.itemDoubleClicked.connect(lambda item:self.task_activated.emit(item.data(Qt.ItemDataRole.UserRole))); layout.addWidget(task_list,1); self.columns_layout.addWidget(frame)
+        task_list=KanbanColumnList(status,self.move_task); task_list.setDragEnabled(not self.read_only); task_list.setAcceptDrops(not self.read_only); task_list.itemClicked.connect(lambda item:self.task_activated.emit(item.data(Qt.ItemDataRole.UserRole))); task_list.itemDoubleClicked.connect(lambda item:self.task_activated.emit(item.data(Qt.ItemDataRole.UserRole))); layout.addWidget(task_list,1); self.columns_layout.addWidget(frame)
         self.columns[status],self.column_frames[status],self.headings[status]=task_list,frame,heading
     def set_project(self,project_id:UUID|None)->None:self.project_id=project_id;self.refresh()
     def refresh(self,*_args)->None:
@@ -131,6 +131,7 @@ class ProjectBoard(QWidget):
             margins.left()+margins.right()+visible_width+spacing*(visible_count-1)
         )
     def move_task(self,task_id:UUID,status:TaskStatus)->bool:
+        if self.read_only:return False
         current=next((column for column in self.columns.values() if any(column.item(i).data(Qt.ItemDataRole.UserRole)==task_id for i in range(column.count()))),None)
         if current is not None and current.status is status:return False
         try:self.task_service.update_task(task_id,status=status)

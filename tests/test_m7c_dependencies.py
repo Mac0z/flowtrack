@@ -150,7 +150,7 @@ def test_dependency_connector_strokes_path_and_fills_only_arrowhead():
     assert (painter.saved, painter.restored) == (1, 1)
 
 
-def test_inspector_add_remove_order_refresh_and_signal(application, services):
+def test_inspector_add_remove_order_refresh_and_signal(application, services, monkeypatch):
     pytest.importorskip("PySide6")
     from flowtrack.ui.widgets.task_inspector import TaskInspector
 
@@ -172,6 +172,7 @@ def test_inspector_add_remove_order_refresh_and_signal(application, services):
 
     assert inspector.predecessors_layout.count() == 1
     assert queries.task_dependencies(current).predecessors[0].task_id == predecessor
+    monkeypatch.setattr(inspector, "confirm_dependency_removal", lambda _title: True)
     inspector.remove_predecessor(predecessor)
     assert inspector.predecessors_layout.count() == 0
     assert queries.task_dependencies(current).predecessors == ()

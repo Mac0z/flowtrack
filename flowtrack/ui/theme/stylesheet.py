@@ -19,7 +19,10 @@ QFrame#card {{ background: {c.surface_primary}; border: 1px solid {c.border_subt
 QPushButton {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.md}px; padding: {s.sm}px {s.md}px; }}
 QPushButton:hover {{ background: {c.surface_hover}; }}
 QPushButton:pressed {{ background: {c.surface_selected}; }}
-QPushButton:focus, QLineEdit:focus, QListWidget:focus {{ border: 1px solid {c.focus}; }}
+QPushButton:focus, QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus,
+QDateEdit:focus, QSpinBox:focus, QListWidget:focus, QTableWidget:focus {{
+    border: 1px solid {c.focus}; outline: 0;
+}}
 QPushButton:disabled {{ color: {c.disabled}; }}
 QPushButton#navItem {{ text-align: left; border: 0; background: transparent; padding: 10px 12px; }}
 QPushButton#navItem:hover {{ background: {c.surface_hover}; }}
@@ -37,6 +40,7 @@ QListWidget::item {{ padding: 10px; border-radius: {r.sm}px; }}
 QListWidget::item:hover {{ background: {c.surface_hover}; }}
 QListWidget::item:selected {{ background: {c.surface_selected}; }}
 QListWidget::item:selected:hover {{ background: {c.surface_selected}; }}
+QListWidget::item:focus, QTableWidget::item:focus {{ border: 1px solid {c.focus}; }}
 QTableWidget {{ background: {c.surface_primary}; border: 1px solid {c.border_subtle}; gridline-color: {c.divider}; selection-background-color: {c.surface_selected}; }}
 QHeaderView::section {{ background: {c.surface_secondary}; color: {c.text_secondary}; border: 0; border-bottom: 1px solid {c.border_subtle}; padding: 7px; }}
 QComboBox, QDateEdit, QPlainTextEdit, QSpinBox {{ background: {c.surface_secondary}; border: 1px solid {c.border_subtle}; border-radius: {r.sm}px; padding: 6px; }}

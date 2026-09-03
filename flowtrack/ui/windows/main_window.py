@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
         except ValueError:
             initial = Destination.DASHBOARD
         self.navigation = NavigationController(initial)
-        self.inspector = TaskInspector(self.task_service, self.task_queries)
+        self.inspector = TaskInspector(self.task_service, self.task_queries, read_only=read_only)
         self.inspector.deleted.connect(self._delete_inspected_task)
         self.quick_capture = QuickCaptureDialog(self.task_service, self.task_queries, self)
         # The dialog is shared by every capture entry point, so its successful
@@ -106,15 +106,15 @@ class MainWindow(QMainWindow):
                 page = DashboardView(self.task_queries)
                 page.quick_add_requested.connect(self.open_quick_task); page.global_search_requested.connect(self.open_command_palette); page.task_selected.connect(self.open_inspector)
             elif item.destination is Destination.MY_TASKS:
-                page = MyTasksView(self.task_service, self.task_queries, self.settings)
+                page = MyTasksView(self.task_service, self.task_queries, self.settings, read_only=self.read_only)
                 page.task_selected.connect(self.open_inspector); page.data_changed.connect(self.refresh_execution_views)
             elif item.destination is Destination.PROJECTS:
-                page = ProjectsView(self.project_service, self.project_queries, self.task_service)
+                page = ProjectsView(self.project_service, self.project_queries, self.task_service, read_only=self.read_only)
                 page.task_selected.connect(self.open_inspector)
                 page.new_task_requested.connect(self.open_project_task)
                 page.project_changed.connect(self.refresh_project_views)
             elif item.destination is Destination.CALENDAR:
-                page = CalendarView(self.task_service, self.task_queries)
+                page = CalendarView(self.task_service, self.task_queries, read_only=self.read_only)
                 page.task_selected.connect(self.open_inspector)
                 page.data_changed.connect(self.refresh_project_views)
             elif item.destination is Destination.SETTINGS and self.data_directory is not None:
@@ -168,6 +168,9 @@ class MainWindow(QMainWindow):
         self.pinned_projects_widget = QWidget(); self.pinned_projects_layout = QVBoxLayout(self.pinned_projects_widget); self.pinned_projects_layout.setContentsMargins(0,0,0,0); self.pinned_projects_layout.setSpacing(2); layout.addWidget(self.pinned_projects_widget)
         manage = NavigationButton("Owners & Tags")
         manage.setCheckable(False); manage.clicked.connect(self.people_tags.open)
+        manage.setEnabled(not self.read_only)
+        if self.read_only:
+            manage.setToolTip("Owners and tags cannot be changed while the dataset is read-only.")
         layout.addWidget(manage)
         layout.addStretch()
         sidebar.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
@@ -198,12 +201,16 @@ class MainWindow(QMainWindow):
         self.settings.last_destination = destination.value
 
     def open_quick_task(self) -> None:
+        if self.read_only:
+            return
         self.quick_capture.open()
 
     def _task_created(self, task_id: object) -> None:
         self.refresh_project_views()
 
     def open_project_task(self, project_id: object) -> None:
+        if self.read_only:
+            return
         self.quick_capture.open_for_project(project_id)
 
     def open_project(self, project_id: object) -> None:
