@@ -15,10 +15,15 @@ def database_url(path: Path) -> str:
     return f"sqlite:///{path.resolve().as_posix()}"
 
 
-def create_database_engine(path: Path, *, echo: bool = False) -> Engine:
+def create_database_engine(path: Path, *, echo: bool = False, read_only: bool = False) -> Engine:
     """Create an engine for a FlowTrack database without creating its schema."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(database_url(path), echo=echo)
+    if read_only:
+        # SQLite URI mode enforces read-only access below the application layer.
+        url = f"sqlite:///file:{path.resolve().as_posix()}?mode=ro&uri=true"
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        url = database_url(path)
+    engine = create_engine(url, echo=echo)
 
     @event.listens_for(engine, "connect")
     def enable_foreign_keys(dbapi_connection: object, _connection_record: object) -> None:

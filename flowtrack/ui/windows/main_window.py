@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QButtonGroup, QHBoxLayout, QLabel, QMainWindow, QSizePolicy, QStackedWidget,
     QStyle, QVBoxLayout, QWidget, QMessageBox,
 )
+from pathlib import Path
 from sqlalchemy import create_engine
 from flowtrack.persistence.models import Base
 from flowtrack.persistence.database import session_factory
@@ -22,6 +23,7 @@ from flowtrack.ui.views.dashboard import DashboardView
 from flowtrack.ui.views.my_tasks import MyTasksView
 from flowtrack.ui.views.projects import ProjectsView
 from flowtrack.ui.views.calendar import CalendarView
+from flowtrack.ui.views.settings import SettingsView
 from flowtrack.ui.dialogs.quick_capture import QuickCaptureDialog
 from flowtrack.ui.dialogs.people_tags import PeopleTagsDialog
 from flowtrack.ui.widgets.task_inspector import TaskInspector
@@ -33,10 +35,13 @@ class MainWindow(QMainWindow):
 
     def __init__(self, settings: ApplicationSettings | None = None,
                  task_service: TaskExecutionService | None = None,
-                 task_queries: TaskQueryService | None = None) -> None:
+                 task_queries: TaskQueryService | None = None, *,
+                 data_directory: Path | None = None, read_only: bool = False) -> None:
         super().__init__()
         self.settings = settings or ApplicationSettings()
-        self.setWindowTitle("FlowTrack")
+        self.read_only = read_only
+        self.data_directory = data_directory
+        self.setWindowTitle("FlowTrack — Read-Only" if read_only else "FlowTrack")
         self.setMinimumSize(960, 640)
         self.resize(1280, 800)
         if task_service is None or task_queries is None:
@@ -109,6 +114,8 @@ class MainWindow(QMainWindow):
                 page = CalendarView(self.task_service, self.task_queries)
                 page.task_selected.connect(self.open_inspector)
                 page.data_changed.connect(self.refresh_project_views)
+            elif item.destination is Destination.SETTINGS and self.data_directory is not None:
+                page = SettingsView(self.data_directory)
             else:
                 page = PlaceholderView(item.label)
             self.pages[item.destination] = page
@@ -178,6 +185,8 @@ class MainWindow(QMainWindow):
         self.active_search_action.setShortcut(shortcuts.active_view_search)
         self.active_search_action.triggered.connect(self.focus_active_search)
         self.addAction(self.active_search_action)
+        if self.read_only:
+            self.quick_task_action.setEnabled(False)
 
     def _show_destination(self, destination: Destination) -> None:
         self.page_stack.setCurrentWidget(self.pages[destination])
