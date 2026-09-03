@@ -52,11 +52,13 @@ def check_integrity(path: Path, *, full: bool = False) -> IntegrityResult:
     if not path.is_file() or path.stat().st_size == 0:
         return IntegrityResult(False, ("The database file is missing or empty.",))
     connection: sqlite3.Connection | None = None
+    cursor: sqlite3.Cursor | None = None
     try:
         uri = f"{path.resolve().as_uri()}?mode=ro"
         connection = sqlite3.connect(uri, uri=True)
         pragma = "integrity_check" if full else "quick_check"
-        messages = tuple(str(row[0]) for row in connection.execute(f"PRAGMA {pragma}"))
+        cursor = connection.execute(f"PRAGMA {pragma}")
+        messages = tuple(str(row[0]) for row in cursor)
         result = IntegrityResult(messages == ("ok",), messages)
         logger.info("SQLite %s for %s: %s", pragma, path, "ok" if result.ok else "failed")
         return result
@@ -64,8 +66,12 @@ def check_integrity(path: Path, *, full: bool = False) -> IntegrityResult:
         logger.warning("SQLite integrity check failed for %s: %s", path, error)
         return IntegrityResult(False, ("The file could not be validated as a SQLite database.",))
     finally:
-        if connection is not None:
-            connection.close()
+        try:
+            if cursor is not None:
+                cursor.close()
+        finally:
+            if connection is not None:
+                connection.close()
 
 
 class BackupManager:
@@ -95,8 +101,19 @@ class BackupManager:
         logger.info("Backup requested (%s): %s", reason.value, destination)
         try:
             source_uri = f"{self.paths.database.resolve().as_uri()}?mode=ro"
-            with sqlite3.connect(source_uri, uri=True) as source, sqlite3.connect(temporary) as target:
+            source: sqlite3.Connection | None = None
+            target: sqlite3.Connection | None = None
+            try:
+                source = sqlite3.connect(source_uri, uri=True)
+                target = sqlite3.connect(temporary)
                 source.backup(target)
+            finally:
+                try:
+                    if target is not None:
+                        target.close()
+                finally:
+                    if source is not None:
+                        source.close()
             result = check_integrity(temporary, full=True)
             if not result.ok:
                 raise BackupError("FlowTrack could not validate the new backup.")
@@ -112,7 +129,7 @@ class BackupManager:
             logger.exception("Backup failed (%s): %s", reason.value, error)
             raise BackupError("FlowTrack could not create a safe backup.") from error
         finally:
-            temporary.unlink(missing_ok=True)
+            self._remove_temporary(temporary)
 
     def create_daily_if_needed(self, *, now: datetime | None = None) -> BackupInfo | None:
         """Back up once per UTC day when the DB is newer than the newest backup."""
@@ -170,7 +187,7 @@ class BackupManager:
                 self._adopt_safety_copy(safety.path)
             raise BackupError("FlowTrack could not restore the backup safely.") from error
         finally:
-            candidate.unlink(missing_ok=True)
+            self._remove_temporary(candidate)
 
     def _adopt_safety_copy(self, safety: Path) -> None:
         candidate = self.paths.database.with_name(".flowtrack-rollback.tmp")
@@ -190,8 +207,18 @@ class BackupManager:
     @staticmethod
     def _sync_file(path: Path) -> None:
         """Ask the OS to flush a completed candidate before atomic adoption."""
-        with path.open("rb") as stream:
+        # Windows' fsync implementation requires a writable file descriptor.
+        with path.open("r+b") as stream:
+            stream.flush()
             os.fsync(stream.fileno())
+
+    @staticmethod
+    def _remove_temporary(path: Path) -> None:
+        """Best-effort cleanup that cannot replace the operation's real error."""
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove temporary database file: %s", path, exc_info=True)
 
     @staticmethod
     def _parse(path: Path) -> tuple[datetime, BackupReason] | None:
