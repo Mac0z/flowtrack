@@ -76,13 +76,34 @@ runner-architecture wheel before that source-build switch can take effect. This
 keeps the application's existing `SQLAlchemy>=2.0,<2.1` version range while
 intentionally using SQLAlchemy's pure-Python runtime and avoiding optional
 `sqlalchemy/cyextension/*.so` files whose single-architecture Mach-O slices
-prevent universal2 collection. CI imports SQLAlchemy, reports its resolved
-version and package path, lists matching native extensions, and fails before
-PyInstaller if any are present.
+prevent universal2 collection. The architecture preflight reports SQLAlchemy
+as pure Python and fails before PyInstaller if native extensions are present.
 
 This packaging choice does not change application or persistence semantics and
 does not affect normal development installations. The Windows job remains
 unchanged and may use SQLAlchemy's compiled extensions from its normal wheel.
+
+MarkupSafe is handled similarly in the macOS job. Pip builds its source
+distribution with MarkupSafe's supported `MARKUPSAFE_NO_SPEEDUPS=1` setting,
+which omits the optional `_speedups` accelerator rather than installing the
+runner-specific arm64 wheel or deleting a binary afterward. The normal
+pure-Python implementation remains importable and supports the Mako templates
+used by Alembic. This setting is scoped to macOS packaging; Windows continues
+to use its ordinary dependency installation.
+
+Before PyInstaller starts, `packaging/check_macos_architectures.py` audits a
+conservative allow-list of application runtime packages: PySide6, shiboken6,
+SQLAlchemy, MarkupSafe, Alembic, Mako, and SQLAlchemy's greenlet dependency. It
+recursively considers their `.so`, `.dylib`, and executable files (including
+extensionless Qt framework binaries). It also checks the Python executable,
+Python shared library when present, and native standard-library modules under
+`lib-dynload`. Test-only packages such as pytest are deliberately outside this
+scope because PyInstaller does not collect them for FlowTrack. Candidate files
+that `file` identifies as non-Mach-O are treated as not applicable; Mach-O
+files are inspected with `lipo -archs` and classified as universal2,
+arm64-only, x86_64-only, or unsupported. Any runtime Mach-O file without both
+**x86_64 and arm64** fails immediately with its package, path, detected slices,
+and classification.
 
 The PyInstaller spec requests `target_arch="universal2"`, and CI accepts and
 names `FlowTrack-macOS-universal2` only after `lipo -archs` finds **both x86_64
