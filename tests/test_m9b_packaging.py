@@ -62,3 +62,18 @@ def test_runtime_files_remain_external_to_frozen_executable(
     assert bundle.parent not in log_directory(
         platform_name=platform_name, environment=environment, home=home
     ).parents
+
+
+def test_macos_packaging_disables_sqlalchemy_native_extensions() -> None:
+    workflow = (
+        Path(__file__).parents[1] / ".github" / "workflows" / "package.yml"
+    ).read_text(encoding="utf-8")
+    macos_job = workflow.split("  macos:", maxsplit=1)[1]
+
+    assert 'DISABLE_SQLALCHEMY_CEXT: "1"' in macos_job
+    assert '--no-binary SQLAlchemy -e ".[dev,packaging]"' in macos_job
+    assert '(package_directory / "cyextension").glob("*.so")' in macos_job
+    assert "if native_extensions:" in macos_job
+    assert macos_job.index("Verify pure-Python SQLAlchemy") < macos_job.index(
+        "Build universal2 application"
+    )

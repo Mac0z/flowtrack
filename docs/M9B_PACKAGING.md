@@ -60,14 +60,29 @@ variable changes ordinary startup.
 The Windows job uses Windows Server 2022, Python 3.12 x64, validates both smoke
 modes, inspects `FlowTrack.exe`, and uploads `FlowTrack-Windows-x64`.
 
-The macOS job uses the readily available standard `macos-14` runner, whose
-host architecture is x86_64. It records the actual runner architecture with
+The macOS job uses the standard `macos-14` runner. It records the actual
+runner architecture with
 `uname -m` for diagnostics, but never treats that architecture as evidence
 about the application. The build continues to install the pinned official
 Python.org 3.12.10 universal2 framework and uses
 `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`. Before the
 build, CI records that interpreter with `file` and requires `lipo -archs` to
 report both **x86_64 and arm64**.
+
+For this macOS packaging job only, pip builds SQLAlchemy from its source
+distribution with SQLAlchemy's supported `DISABLE_SQLALCHEMY_CEXT=1` switch.
+`--no-binary SQLAlchemy` is required as well so pip does not select a
+runner-architecture wheel before that source-build switch can take effect. This
+keeps the application's existing `SQLAlchemy>=2.0,<2.1` version range while
+intentionally using SQLAlchemy's pure-Python runtime and avoiding optional
+`sqlalchemy/cyextension/*.so` files whose single-architecture Mach-O slices
+prevent universal2 collection. CI imports SQLAlchemy, reports its resolved
+version and package path, lists matching native extensions, and fails before
+PyInstaller if any are present.
+
+This packaging choice does not change application or persistence semantics and
+does not affect normal development installations. The Windows job remains
+unchanged and may use SQLAlchemy's compiled extensions from its normal wheel.
 
 The PyInstaller spec requests `target_arch="universal2"`, and CI accepts and
 names `FlowTrack-macOS-universal2` only after `lipo -archs` finds **both x86_64

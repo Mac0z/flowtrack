@@ -67,9 +67,33 @@ jobs:
           grep -qw x86_64 <<< "$PYTHON_ARCHS"
           grep -qw arm64 <<< "$PYTHON_ARCHS"
       - name: Install build dependencies
-        run: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pip install -e ".[dev,packaging]"
+        env:
+          # SQLAlchemy's supported source-build switch prevents optional native
+          # extensions from introducing a runner-architecture-only Mach-O slice.
+          DISABLE_SQLALCHEMY_CEXT: "1"
+        run: |
+          /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pip install \
+            --no-binary SQLAlchemy -e ".[dev,packaging]"
       - name: Pre-build validation
         run: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_m9b_packaging.py tests/test_persistence.py
+      - name: Verify pure-Python SQLAlchemy
+        run: |
+          /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 - <<'PY'
+          from pathlib import Path
+
+          import sqlalchemy
+
+          package_directory = Path(sqlalchemy.__file__).resolve().parent
+          native_extensions = sorted((package_directory / "cyextension").glob("*.so"))
+          print(f"SQLAlchemy version: {sqlalchemy.__version__}")
+          print(f"SQLAlchemy package: {package_directory}")
+          print(f"SQLAlchemy cyextension native files: {native_extensions}")
+          if native_extensions:
+              raise SystemExit(
+                  "macOS universal2 packaging requires pure-Python SQLAlchemy; "
+                  f"unexpected native extensions: {native_extensions}"
+              )
+          PY
       - name: Build universal2 application
         run: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 packaging/build.py
       - name: Internal packaged smoke check
