@@ -171,6 +171,7 @@ class TaskQueryService:
                 .where(Dependency.successor_task_id == task_id)))
             return {"id": task.id, "title": task.title, "description": task.description or "", "status": task.status,
                     "priority": task.priority, "owner_id": task.owner_id, "project_id": task.project_id,
+                    "parent_task_id": task.parent_task_id,
                     "start_date": task.start_date, "due_date": task.due_date, "progress": calculate_task_progress(task),
                     "progress_mode": task.progress_mode, "manual_progress": task.manual_progress,
                     "automatic_progress": calculate_task_automatic_progress(task),

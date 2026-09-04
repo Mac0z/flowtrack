@@ -41,6 +41,11 @@ def log_directory(**kwargs: object) -> Path:
     return application_data_directory(**kwargs) / "logs"
 
 
+def performance_diagnostics_directory(**kwargs: object) -> Path:
+    """Return the local, non-dataset directory for performance diagnostics."""
+    return log_directory(**kwargs) / "performance"
+
+
 def default_database_path(**kwargs: object) -> Path:
     """Return the replaceable M4 local dataset location."""
     return application_data_directory(**kwargs) / "flowtrack.db"

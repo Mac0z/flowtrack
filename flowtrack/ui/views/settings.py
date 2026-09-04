@@ -6,7 +6,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QLabel,
+    QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QHeaderView, QLabel,
     QMessageBox, QPushButton, QRadioButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -17,6 +17,7 @@ from flowtrack.application.data_location import (
 from flowtrack.application.data_safety import DataSafetyService
 from flowtrack.infrastructure.backup import BackupError, BackupInfo
 from flowtrack.infrastructure.settings import ApplicationSettings
+from flowtrack.infrastructure.performance import PerformanceDiagnostics
 
 
 class ChangeDataLocationDialog(QDialog):
@@ -57,11 +58,13 @@ class SettingsView(QWidget):
     def __init__(self, data_directory: Path,
                  data_safety: DataSafetyService | None = None, *,
                  settings: ApplicationSettings | None = None,
+                 performance: PerformanceDiagnostics | None = None,
                  commit_change: Callable[[PreparedMove | None, Path | None], None] | None = None) -> None:
         super().__init__()
         self.data_safety = data_safety
         self.data_directory = Path(data_directory)
         self.settings = settings or ApplicationSettings()
+        self.performance = performance or PerformanceDiagnostics(False)
         self.relocation = DatasetRelocationService(
             self.data_directory, self.settings, self.data_safety
         )
@@ -101,11 +104,58 @@ class SettingsView(QWidget):
         self.restore_button = QPushButton("Restore Selected Backup")
         self.restore_button.setObjectName("restoreBackupButton")
         self.restore_button.clicked.connect(self._restore_selected); layout.addWidget(self.restore_button)
+        layout.addWidget(QLabel("Performance Diagnostics"))
+        self.performance_enabled = QCheckBox("Enable Performance Diagnostics")
+        self.performance_enabled.setObjectName("performanceDiagnosticsEnabled")
+        self.performance_enabled.setChecked(self.settings.performance_diagnostics_enabled)
+        self.performance_enabled.toggled.connect(self._set_performance_enabled)
+        layout.addWidget(self.performance_enabled)
+        detail = QLabel("Records anonymous local timings only. No task text is collected or transmitted.")
+        detail.setObjectName("mutedText")
+        detail.setWordWrap(True)
+        layout.addWidget(detail)
+        self.export_performance_button = QPushButton("Export Performance Diagnostics…")
+        self.export_performance_button.clicked.connect(self._export_performance)
+        layout.addWidget(self.export_performance_button)
+        self.clear_performance_button = QPushButton("Clear Performance Diagnostics")
+        self.clear_performance_button.clicked.connect(self._clear_performance)
+        layout.addWidget(self.clear_performance_button)
         layout.addStretch()
         writable = data_safety is not None and not data_safety.read_only
         self.backup_now_button.setEnabled(writable)
         self.restore_button.setEnabled(False)
         self.refresh_backups()
+
+    def _set_performance_enabled(self, enabled: bool) -> None:
+        self.settings.performance_diagnostics_enabled = enabled
+
+    def _export_performance(self) -> None:
+        selected, _ = QFileDialog.getSaveFileName(
+            self, "Export Performance Diagnostics", "flowtrack-performance-diagnostics.zip",
+            "ZIP archives (*.zip)",
+        )
+        if not selected:
+            return
+        try:
+            destination = self.performance.export(Path(selected))
+        except (OSError, ValueError):
+            QMessageBox.warning(self, "Export Failed", "FlowTrack could not export the performance diagnostics.")
+            return
+        QMessageBox.information(self, "Export Complete", f"Performance diagnostics were exported to:\n\n{destination}")
+
+    def _clear_performance(self) -> None:
+        if not self._confirmation(
+            "Clear Performance Diagnostics?",
+            "Delete all locally retained performance diagnostics? Normal logs and FlowTrack data will not be changed.",
+            "Clear Diagnostics",
+        ):
+            return
+        try:
+            self.performance.clear()
+        except OSError:
+            QMessageBox.warning(self, "Clear Failed", "FlowTrack could not clear the performance diagnostics.")
+            return
+        QMessageBox.information(self, "Diagnostics Cleared", "Performance diagnostics were cleared.")
 
     def _change_data_location(self) -> None:
         choice = ChangeDataLocationDialog(

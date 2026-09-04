@@ -37,6 +37,16 @@ class ApplicationSettings:
         self._settings.sync()
 
     @property
+    def performance_diagnostics_enabled(self) -> bool:
+        """Whether explicitly opted-in local performance recording is enabled."""
+        return self._settings.value("diagnostics/performance_enabled", False, type=bool)
+
+    @performance_diagnostics_enabled.setter
+    def performance_diagnostics_enabled(self, enabled: bool) -> None:
+        self._settings.setValue("diagnostics/performance_enabled", bool(enabled))
+        self._settings.sync()
+
+    @property
     def last_destination(self) -> str:
         return self._settings.value("shell/last_destination", "dashboard", type=str)
 

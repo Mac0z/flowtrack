@@ -15,6 +15,7 @@ from flowtrack.application.task_execution import TaskExecutionService, TaskValid
 from flowtrack.application.task_queries import TaskQueryService
 from flowtrack.domain.enums import ProgressMode, TaskPriority, TaskStatus
 from flowtrack.ui.widgets.nullable_date_edit import NullableDateEdit
+from flowtrack.infrastructure.performance import PerformanceDiagnostics
 
 
 class TagChip(QWidget):
@@ -68,10 +69,13 @@ class TaskInspector(QWidget):
     deleted = Signal()
 
     def __init__(self, service: TaskExecutionService, queries: TaskQueryService,
-                 parent=None, *, read_only: bool = False) -> None:
+                 parent=None, *, read_only: bool = False,
+                 performance: PerformanceDiagnostics | None = None) -> None:
         super().__init__(parent)
         self.service, self.queries, self.read_only = service, queries, read_only
+        self.performance = performance or service.performance
         self.task_id: UUID | None = None
+        self._diagnostics_context: dict[str, object] = {"save_type": "update"}
         self.setFixedWidth(390)
         layout = QVBoxLayout(self)
         top = QHBoxLayout()
@@ -210,6 +214,15 @@ class TaskInspector(QWidget):
         if detail is None:
             return
         self.task_id = task_id
+        self._diagnostics_context = {
+            "save_type": "update",
+            "has_project": detail["project_id"] is not None,
+            "has_parent": detail.get("parent_task_id") is not None,
+            "child_count": len(detail["children"]),  # type: ignore[arg-type]
+            "dependency_count": len(detail["dependencies"]),  # type: ignore[arg-type]
+            "status": TaskStatus(detail["status"]).value,
+            "is_completed": TaskStatus(detail["status"]) is TaskStatus.COMPLETE,
+        }
         self.title.setText(str(detail["title"]))
         self.description.setPlainText(str(detail["description"]))
         self._select_data(self.status, detail["status"])
@@ -319,7 +332,8 @@ class TaskInspector(QWidget):
         try:
             owner_data = self.owner.currentData()
             self.service.update_task(
-                self.task_id, title=self.title.text(), description=self.description.toPlainText(),
+                self.task_id, diagnostics_context=self._diagnostics_context,
+                title=self.title.text(), description=self.description.toPlainText(),
                 status=TaskStatus(self.status.currentData()),
                 priority=TaskPriority(self.priority.currentData()),
                 owner_id=UUID(owner_data) if owner_data else None,
@@ -338,7 +352,8 @@ class TaskInspector(QWidget):
             return
         self.error.clear()
         self.saved.emit()
-        self.load_task(self.task_id)
+        with self.performance.measure("task_save.reload", context={"save_type": "update"}):
+            self.load_task(self.task_id)
 
     def _progress_mode_changed(self) -> None:
         data = self.progress_mode.currentData()
