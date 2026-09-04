@@ -1,4 +1,5 @@
 """FlowTrack desktop application."""
 
-__version__ = "0.1.0"
+from flowtrack.infrastructure.identity import application_version
 
+__version__ = application_version()

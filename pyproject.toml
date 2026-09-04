@@ -21,9 +21,12 @@ dependencies = [
 dev = [
     "pytest>=8.0,<9",
 ]
+packaging = [
+    "pyinstaller==6.16.0",
+]
 
 [project.gui-scripts]
-flowtrack = "flowtrack.app:main"
+flowtrack = "flowtrack.app:run"
 
 [tool.setuptools.packages.find]
 include = ["flowtrack*"]
