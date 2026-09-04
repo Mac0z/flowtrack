@@ -102,11 +102,19 @@ def test_macos_packaging_disables_markupsafe_speedups() -> None:
     )
 
 
-def _fake_tools(architectures: str, *, macho: bool = True):
-    def run(command) -> str:
-        if command[0] == "file":
-            return "Mach-O 64-bit bundle" if macho else "ASCII text"
-        assert command[0] == "lipo"
+def _fake_macos_tools(file_architectures: dict[Path, str | None]):
+    """Simulate macOS tools using the identity of the inspected file."""
+
+    def run(command: tuple[str, ...]) -> str:
+        path = Path(command[-1])
+        assert path in file_architectures, f"Unexpected file inspection: {path}"
+        architectures = file_architectures[path]
+        if command[:2] == ("file", "-b"):
+            if architectures is None:
+                return f"{path}: ASCII text"
+            return f"{path}: Mach-O 64-bit bundle {architectures}"
+        assert command[:2] == ("lipo", "-archs")
+        assert architectures is not None, f"lipo called for non-Mach-O file: {path}"
         return architectures
 
     return run
@@ -116,16 +124,27 @@ def test_architecture_audit_accepts_universal2(tmp_path) -> None:
     binary = tmp_path / "native.so"
     binary.touch()
     result = macos_audit.inspect_file(
-        binary, "Example", run_command=_fake_tools("x86_64 arm64")
+        binary,
+        "Example",
+        run_command=_fake_macos_tools({binary: "x86_64 arm64"}),
     )
     assert result.classification == "universal2"
 
 
-def test_architecture_audit_finds_extensionless_framework_binary(tmp_path) -> None:
+def test_architecture_audit_finds_extensionless_framework_binary(
+    tmp_path, monkeypatch
+) -> None:
     binary = tmp_path / "QtCore.framework" / "Versions" / "A" / "QtCore"
     binary.parent.mkdir(parents=True)
-    binary.touch(mode=0o755)
+    binary.touch()
+    monkeypatch.setattr(macos_audit.os, "access", lambda path, mode: path == binary)
     assert binary in macos_audit.candidate_files(tmp_path)
+    results, incompatible = macos_audit.audit_roots(
+        [("PySide6", tmp_path)],
+        run_command=_fake_macos_tools({binary: "x86_64 arm64"}),
+    )
+    assert results["PySide6"][0].classification == "universal2"
+    assert incompatible == []
 
 
 @pytest.mark.parametrize(
@@ -138,7 +157,8 @@ def test_architecture_audit_rejects_thin_binary(
     binary = tmp_path / "native.so"
     binary.touch()
     results, incompatible = macos_audit.audit_roots(
-        [("Example", tmp_path)], run_command=_fake_tools(architectures)
+        [("Example", tmp_path)],
+        run_command=_fake_macos_tools({binary: architectures}),
     )
     assert results["Example"][0].classification == classification
     assert incompatible == results["Example"]
@@ -151,10 +171,12 @@ def test_architecture_audit_rejects_thin_binary(
     assert f"architectures={architectures}" in diagnostic
 
 
-def test_architecture_audit_ignores_pure_python_package(tmp_path) -> None:
-    (tmp_path / "module.py").write_text("value = 1\n", encoding="utf-8")
+def test_architecture_audit_ignores_pure_python_package(tmp_path, monkeypatch) -> None:
+    module = tmp_path / "module.py"
+    module.write_text("value = 1\n", encoding="utf-8")
+    monkeypatch.setattr(macos_audit.os, "access", lambda path, mode: False)
     results, incompatible = macos_audit.audit_roots(
-        [("Pure", tmp_path)], run_command=_fake_tools("")
+        [("Pure", tmp_path)], run_command=_fake_macos_tools({module: None})
     )
     assert results == {"Pure": []}
     assert incompatible == []
@@ -165,7 +187,7 @@ def test_architecture_audit_ignores_non_macho_candidate(tmp_path) -> None:
     candidate = tmp_path / "data.so"
     candidate.write_text("not a binary", encoding="utf-8")
     results, incompatible = macos_audit.audit_roots(
-        [("Data", tmp_path)], run_command=_fake_tools("", macho=False)
+        [("Data", tmp_path)], run_command=_fake_macos_tools({candidate: None})
     )
     assert results["Data"][0].classification == "non-Mach-O / not applicable"
     assert incompatible == []
