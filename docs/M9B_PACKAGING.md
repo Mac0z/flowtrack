@@ -60,16 +60,28 @@ variable changes ordinary startup.
 The Windows job uses Windows Server 2022, Python 3.12 x64, validates both smoke
 modes, inspects `FlowTrack.exe`, and uploads `FlowTrack-Windows-x64`.
 
-The macOS job uses an Intel `macos-13` runner and the pinned Python.org 3.12.10
-universal2 framework rather than treating runner architecture as proof. The spec
-requests universal2, and CI accepts and names `FlowTrack-macOS-universal2` only
-after `lipo -archs` finds **both x86_64 and arm64** in the final executable. CI
-also records `file`, Mach-O `LC_BUILD_VERSION`, and `Info.plist` output. The app
-is zipped with `ditto` to preserve bundle links.
+The macOS job uses the readily available standard `macos-14` runner, whose
+host architecture is x86_64. It records the actual runner architecture with
+`uname -m` for diagnostics, but never treats that architecture as evidence
+about the application. The build continues to install the pinned official
+Python.org 3.12.10 universal2 framework and uses
+`/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`. Before the
+build, CI records that interpreter with `file` and requires `lipo -archs` to
+report both **x86_64 and arm64**.
 
-A successful macOS 13 build and deployment metadata inspection do **not** prove
-runtime compatibility with every Big Sur machine. Clean-machine Intel/Apple
-Silicon and actual macOS 11 validation belong to M9C.
+The PyInstaller spec requests `target_arch="universal2"`, and CI accepts and
+names `FlowTrack-macOS-universal2` only after `lipo -archs` finds **both x86_64
+and arm64** in the final `FlowTrack.app/Contents/MacOS/FlowTrack` executable.
+In addition to PyInstaller's collected-binary architecture validation, CI finds
+and applies the same explicit two-slice check to the bundled Python runtime and
+Qt Core library. It also records `file`, Mach-O `LC_BUILD_VERSION`, and the full
+`Info.plist` output. `MACOSX_DEPLOYMENT_TARGET=11.0` remains set for the build,
+and the bundle declares `LSMinimumSystemVersion=11.0`. The app is zipped with
+`ditto` to preserve bundle links.
+
+A successful macOS 14 build and deployment metadata inspection do **not** prove
+runtime compatibility with Big Sur. Clean-machine Intel/Apple Silicon and
+actual macOS 11 runtime validation belong to M9C.
 
 ## Warning review and remaining validation
 
