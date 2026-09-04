@@ -42,9 +42,9 @@ jobs:
           if-no-files-found: error
 
   macos:
-    # Intel runner plus Python.org universal2 Python; runner architecture alone is
-    # not used as evidence that the application is universal2.
-    runs-on: macos-13
+    # The runner architecture is recorded for diagnosis, but only lipo checks of
+    # the built application are accepted as evidence that it is universal2.
+    runs-on: macos-14
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
@@ -56,6 +56,16 @@ jobs:
           sudo installer -pkg python.pkg -target /
           /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -c \
             'import platform, sys; assert sys.version_info[:2] == (3, 12); print(platform.platform())'
+      - name: Inspect runner and Python architectures
+        run: |
+          set -euo pipefail
+          PYTHON=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+          echo "Runner architecture: $(uname -m)"
+          file "$PYTHON"
+          PYTHON_ARCHS="$(lipo -archs "$PYTHON")"
+          echo "Python.org interpreter architectures: $PYTHON_ARCHS"
+          grep -qw x86_64 <<< "$PYTHON_ARCHS"
+          grep -qw arm64 <<< "$PYTHON_ARCHS"
       - name: Install build dependencies
         run: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pip install -e ".[dev,packaging]"
       - name: Pre-build validation
@@ -68,13 +78,35 @@ jobs:
         run: FLOWTRACK_PACKAGING_GUI_SMOKE_TEST=1 dist/FlowTrack.app/Contents/MacOS/FlowTrack
       - name: Verify architecture and deployment metadata
         run: |
+          set -euo pipefail
           test -d dist/FlowTrack.app
-          ARCHS="$(lipo -archs dist/FlowTrack.app/Contents/MacOS/FlowTrack)"
-          echo "FlowTrack executable architectures: $ARCHS"
-          grep -qw x86_64 <<< "$ARCHS"
-          grep -qw arm64 <<< "$ARCHS"
-          file dist/FlowTrack.app/Contents/MacOS/FlowTrack
-          otool -l dist/FlowTrack.app/Contents/MacOS/FlowTrack | grep -A5 LC_BUILD_VERSION
+
+          verify_universal2() {
+            local binary="$1"
+            local archs
+            archs="$(lipo -archs "$binary")"
+            echo "$binary architectures: $archs"
+            grep -qw x86_64 <<< "$archs"
+            grep -qw arm64 <<< "$archs"
+            file "$binary"
+          }
+
+          FLOWTRACK=dist/FlowTrack.app/Contents/MacOS/FlowTrack
+          verify_universal2 "$FLOWTRACK"
+
+          # PyInstaller validates collected binaries for target_arch=universal2;
+          # additionally check the bundled Python and Qt Core runtimes explicitly.
+          FRAMEWORKS=dist/FlowTrack.app/Contents/Frameworks
+          PYTHON_RUNTIME="$(find "$FRAMEWORKS" -type f \
+            \( -name Python -o -name 'libpython3.12*.dylib' \) -print -quit)"
+          QT_CORE="$(find "$FRAMEWORKS" -type f \
+            \( -name QtCore -o -name 'libQt6Core*.dylib' \) -print -quit)"
+          test -n "$PYTHON_RUNTIME"
+          test -n "$QT_CORE"
+          verify_universal2 "$PYTHON_RUNTIME"
+          verify_universal2 "$QT_CORE"
+
+          otool -l "$FLOWTRACK" | grep -A5 LC_BUILD_VERSION
           plutil -p dist/FlowTrack.app/Contents/Info.plist
       - name: Preserve app bundle links
         run: ditto -c -k --sequesterRsrc --keepParent dist/FlowTrack.app dist/FlowTrack-macOS-universal2.zip
