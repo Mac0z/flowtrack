@@ -6,6 +6,19 @@ foundation**: a versioned SQLite schema, SQLAlchemy 2.x mappings, transaction
 helpers, and session-scoped repositories. Task business rules and finished UI
 workflows belong to later milestones and are not implemented yet.
 
+## License
+
+FlowTrack is open-source software licensed under the
+[Apache License 2.0](LICENSE).
+
+Please also see [NOTICE](NOTICE) for attribution information and
+[TRADEMARKS.md](TRADEMARKS.md) for the policy covering use of the FlowTrack
+name and branding.
+
+Forks and derivative works are welcome. The FlowTrack name and branding should
+not be used in a way that implies an unofficial version is the original
+FlowTrack project or is endorsed by it.
+
 ## Development setup
 
 Use Python 3.12. FlowTrack does not support other Python feature releases. The
