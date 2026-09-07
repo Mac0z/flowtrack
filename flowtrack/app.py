@@ -14,6 +14,7 @@ from flowtrack import __version__
 from flowtrack.infrastructure.identity import APPLICATION_NAME, ORGANIZATION_NAME
 from flowtrack.infrastructure.logging import configure_logging
 from flowtrack.infrastructure.settings import ApplicationSettings
+from flowtrack.infrastructure.performance import PerformanceDiagnostics
 from flowtrack.infrastructure.paths import default_database_path
 from flowtrack.infrastructure.dataset import DatasetPaths, resolve_saved_or_legacy_dataset
 from flowtrack.infrastructure.lease import HEARTBEAT_INTERVAL_MS
@@ -76,6 +77,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return 0
     application = create_application(arguments)
     settings = ApplicationSettings()
+    performance = PerformanceDiagnostics(lambda: settings.performance_diagnostics_enabled)
     apply_theme(application, get_theme(settings.theme_id))
     smoke_directory: tempfile.TemporaryDirectory[str] | None = None
     if os.environ.get("FLOWTRACK_PACKAGING_GUI_SMOKE_TEST") == "1":
@@ -153,9 +155,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
             raise
 
     window = MainWindow(
-        settings, TaskExecutionService(factory), TaskQueryService(factory),
+        settings, TaskExecutionService(factory, performance), TaskQueryService(factory),
         data_directory=paths.root, read_only=dataset_session.read_only,
         data_safety=data_safety, commit_data_location=commit_data_location,
+        performance=performance,
     )
 
     def cleanup() -> None:

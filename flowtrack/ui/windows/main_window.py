@@ -18,6 +18,7 @@ from flowtrack.application.data_safety import DataSafetyService
 from flowtrack.application.data_location import PreparedMove
 
 from flowtrack.infrastructure.settings import ApplicationSettings
+from flowtrack.infrastructure.performance import PerformanceDiagnostics
 from flowtrack.ui.dialogs.command_palette import CommandPalette
 from flowtrack.ui.navigation import Destination, NavigationController, PRIMARY_NAVIGATION
 from flowtrack.ui.shortcuts import shell_shortcuts
@@ -41,6 +42,7 @@ class MainWindow(QMainWindow):
                  task_queries: TaskQueryService | None = None, *,
                  data_directory: Path | None = None, read_only: bool = False,
                  data_safety: DataSafetyService | None = None,
+                 performance: PerformanceDiagnostics | None = None,
                  commit_data_location: Callable[[PreparedMove | None, Path | None], None] | None = None) -> None:
         super().__init__()
         self.settings = settings or ApplicationSettings()
@@ -48,6 +50,9 @@ class MainWindow(QMainWindow):
         self.data_directory = data_directory
         self.data_safety = data_safety
         self.commit_data_location = commit_data_location
+        self.performance = performance or (
+            task_service.performance if task_service is not None else PerformanceDiagnostics(False)
+        )
         self.setWindowTitle("FlowTrack — Read-Only" if read_only else "FlowTrack")
         self.setMinimumSize(960, 640)
         self.resize(1280, 800)
@@ -69,7 +74,8 @@ class MainWindow(QMainWindow):
         except ValueError:
             initial = Destination.DASHBOARD
         self.navigation = NavigationController(initial)
-        self.inspector = TaskInspector(self.task_service, self.task_queries, read_only=read_only)
+        self.inspector = TaskInspector(self.task_service, self.task_queries, read_only=read_only,
+                                       performance=self.performance)
         self.inspector.deleted.connect(self._delete_inspected_task)
         self.quick_capture = QuickCaptureDialog(self.task_service, self.task_queries, self)
         # The dialog is shared by every capture entry point, so its successful
@@ -124,6 +130,7 @@ class MainWindow(QMainWindow):
             elif item.destination is Destination.SETTINGS and self.data_directory is not None:
                 page = SettingsView(
                     self.data_directory, self.data_safety, settings=self.settings,
+                    performance=self.performance,
                     commit_change=self.commit_data_location,
                 )
                 page.restart_requested.connect(self.close)
@@ -238,15 +245,23 @@ class MainWindow(QMainWindow):
 
     def refresh_project_views(self) -> None:
         page=self.pages.get(Destination.PROJECTS)
-        if isinstance(page,ProjectsView): page.refresh()
+        if isinstance(page,ProjectsView):
+            with self.performance.measure("ui_refresh.project"):
+                page.refresh()
         self.refresh_pinned_projects(); self.refresh_execution_views()
 
     def refresh_execution_views(self) -> None:
         dashboard = self.pages.get(Destination.DASHBOARD); tasks = self.pages.get(Destination.MY_TASKS)
-        if isinstance(dashboard, DashboardView): dashboard.refresh()
-        if isinstance(tasks, MyTasksView): tasks.refresh()
+        if isinstance(dashboard, DashboardView):
+            with self.performance.measure("ui_refresh.dashboard"):
+                dashboard.refresh()
+        if isinstance(tasks, MyTasksView):
+            with self.performance.measure("ui_refresh.my_tasks"):
+                tasks.refresh()
         calendar = self.pages.get(Destination.CALENDAR)
-        if isinstance(calendar, CalendarView): calendar.refresh()
+        if isinstance(calendar, CalendarView):
+            with self.performance.measure("ui_refresh.calendar"):
+                calendar.refresh()
         if self.inspector.isVisible() and self.inspector.task_id is not None:
             self.inspector.load_task(self.inspector.task_id)
 
