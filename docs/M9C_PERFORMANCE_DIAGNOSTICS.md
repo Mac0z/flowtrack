@@ -55,6 +55,31 @@ in the current architecture:
 - `ui_refresh.dashboard`
 - `ui_refresh.calendar`
 
+The M9C follow-up additionally traces the end-to-end inspector interaction:
+
+- `inspector_save.total` covers all synchronous work performed by the inspector,
+  including the save, signal-driven refresh, and the existing final reload.
+- `inspector_save.emit_refresh` covers the synchronous slots invoked by
+  `saved.emit()`.
+- `ui_refresh.project_views_total` and `ui_refresh.execution_views_total` wrap
+  their complete refresh methods. `ui_refresh.pinned_projects` and
+  `ui_refresh.inspector` expose previously unmeasured components while the
+  existing project, dashboard, My Tasks, and calendar events remain intact.
+- `inspector_load.total` is split into `inspector_load.task_detail`,
+  `inspector_load.owners`, `inspector_load.tags`,
+  `inspector_load.dependencies`, and `inspector_load.widget_population`.
+- `ui_event_loop.resume_after_save` starts when Save begins and is recorded by a
+  zero-delay Qt timer on the next event-loop turn. It therefore approximates the
+  full interval during which the application cannot respond to the next queued
+  UI event.
+
+A user-visible freeze can exceed one second even when no individual sub-metric
+does: several synchronous queries, widget updates, and nested view refreshes add
+together before control returns to Qt. The current signal path may also reload
+the inspector during execution-view refresh and again after the signal returns.
+That cumulative and potentially duplicate behaviour is deliberately preserved
+and measured here; optimization or deduplication belongs to the M9D follow-up.
+
 `task_save.activity_write` and a standalone `ui_refresh.gantt` are reserved by
 the recorder but are not emitted yet: the current task path has no activity
 write, while Gantt refresh is currently coupled to the project refresh rather
