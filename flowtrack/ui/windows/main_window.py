@@ -77,6 +77,9 @@ class MainWindow(QMainWindow):
         self.inspector = TaskInspector(self.task_service, self.task_queries, read_only=read_only,
                                        performance=self.performance)
         self.inspector.deleted.connect(self._delete_inspected_task)
+        # Every inspector save has one application-wide refresh path. Connect it
+        # once rather than reconnecting whenever a different task is opened.
+        self.inspector.saved.connect(self.refresh_project_views)
         self.quick_capture = QuickCaptureDialog(self.task_service, self.task_queries, self)
         # The dialog is shared by every capture entry point, so its successful
         # creation signal has one application-wide refresh path.
@@ -268,15 +271,15 @@ class MainWindow(QMainWindow):
             if isinstance(calendar, CalendarView):
                 with self.performance.measure("ui_refresh.calendar", context=context):
                     calendar.refresh()
-            if self.inspector.isVisible() and self.inspector.task_id is not None:
+            # isHidden() represents whether the inspector itself was explicitly
+            # closed. isVisible() would also require every ancestor (including
+            # the top-level window) to be shown, which is not its logical state.
+            if not self.inspector.isHidden() and self.inspector.task_id is not None:
                 with self.performance.measure("ui_refresh.inspector", context=context):
                     self.inspector.load_task(self.inspector.task_id)
 
     def open_inspector(self, task_id: object) -> None:
         self.inspector.load_task(task_id)
-        try: self.inspector.saved.disconnect(self.refresh_execution_views)
-        except RuntimeError: pass
-        self.inspector.saved.connect(self.refresh_project_views)
 
     def focus_active_search(self) -> None:
         page = self.pages.get(self.active_destination)

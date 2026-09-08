@@ -106,6 +106,39 @@ def test_main_window_refreshes_emit_total_and_component_metrics(application, tmp
     task_id = commands.create_task("private")
     window.open_inspector(task_id)
     window.refresh_execution_views()
-    names = [event["event"] for event in read_events(performance.retained_paths())]
-    assert "ui_refresh.inspector" in names
+    inspector_refresh_count = sum(
+        event["event"] == "ui_refresh.inspector"
+        for event in read_events(performance.retained_paths())
+    )
+    assert inspector_refresh_count == 1
+
+    window.inspector.close_inspector()
+    window.refresh_execution_views()
+    assert sum(
+        event["event"] == "ui_refresh.inspector"
+        for event in read_events(performance.retained_paths())
+    ) == inspector_refresh_count
+    window.close()
+
+
+def test_opening_multiple_tasks_does_not_duplicate_saved_refresh(application, tmp_path):
+    performance = PerformanceDiagnostics(True, directory=tmp_path)
+    commands, queries, _ = _services(performance)
+    window = MainWindow(task_service=commands, task_queries=queries, performance=performance)
+    first = commands.create_task("first")
+    second = commands.create_task("second")
+    window.open_inspector(first)
+    window.open_inspector(second)
+
+    before = sum(
+        event["event"] == "ui_refresh.project_views_total"
+        for event in read_events(performance.retained_paths())
+    )
+    window.inspector.saved.emit()
+    after = sum(
+        event["event"] == "ui_refresh.project_views_total"
+        for event in read_events(performance.retained_paths())
+    )
+
+    assert after == before + 1
     window.close()
