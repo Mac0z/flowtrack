@@ -77,6 +77,9 @@ class MainWindow(QMainWindow):
         self.inspector = TaskInspector(self.task_service, self.task_queries, read_only=read_only,
                                        performance=self.performance)
         self.inspector.deleted.connect(self._delete_inspected_task)
+        # Every inspector save has one application-wide refresh path. Connect it
+        # once rather than reconnecting whenever a different task is opened.
+        self.inspector.saved.connect(self.refresh_project_views)
         self.quick_capture = QuickCaptureDialog(self.task_service, self.task_queries, self)
         # The dialog is shared by every capture entry point, so its successful
         # creation signal has one application-wide refresh path.
@@ -244,32 +247,39 @@ class MainWindow(QMainWindow):
             button=NavigationButton(project.name); button.setCheckable(False); button.setToolTip(project.name); button.clicked.connect(lambda _=False,pid=project.id:self.open_project(pid)); self.pinned_projects_layout.addWidget(button)
 
     def refresh_project_views(self) -> None:
-        page=self.pages.get(Destination.PROJECTS)
-        if isinstance(page,ProjectsView):
-            with self.performance.measure("ui_refresh.project"):
-                page.refresh()
-        self.refresh_pinned_projects(); self.refresh_execution_views()
+        context = self.inspector.diagnostics_context
+        with self.performance.measure("ui_refresh.project_views_total", context=context):
+            page=self.pages.get(Destination.PROJECTS)
+            if isinstance(page,ProjectsView):
+                with self.performance.measure("ui_refresh.project", context=context):
+                    page.refresh()
+            with self.performance.measure("ui_refresh.pinned_projects", context=context):
+                self.refresh_pinned_projects()
+            self.refresh_execution_views()
 
     def refresh_execution_views(self) -> None:
-        dashboard = self.pages.get(Destination.DASHBOARD); tasks = self.pages.get(Destination.MY_TASKS)
-        if isinstance(dashboard, DashboardView):
-            with self.performance.measure("ui_refresh.dashboard"):
-                dashboard.refresh()
-        if isinstance(tasks, MyTasksView):
-            with self.performance.measure("ui_refresh.my_tasks"):
-                tasks.refresh()
-        calendar = self.pages.get(Destination.CALENDAR)
-        if isinstance(calendar, CalendarView):
-            with self.performance.measure("ui_refresh.calendar"):
-                calendar.refresh()
-        if self.inspector.isVisible() and self.inspector.task_id is not None:
-            self.inspector.load_task(self.inspector.task_id)
+        context = self.inspector.diagnostics_context
+        with self.performance.measure("ui_refresh.execution_views_total", context=context):
+            dashboard = self.pages.get(Destination.DASHBOARD); tasks = self.pages.get(Destination.MY_TASKS)
+            if isinstance(dashboard, DashboardView):
+                with self.performance.measure("ui_refresh.dashboard", context=context):
+                    dashboard.refresh()
+            if isinstance(tasks, MyTasksView):
+                with self.performance.measure("ui_refresh.my_tasks", context=context):
+                    tasks.refresh()
+            calendar = self.pages.get(Destination.CALENDAR)
+            if isinstance(calendar, CalendarView):
+                with self.performance.measure("ui_refresh.calendar", context=context):
+                    calendar.refresh()
+            # isHidden() represents whether the inspector itself was explicitly
+            # closed. isVisible() would also require every ancestor (including
+            # the top-level window) to be shown, which is not its logical state.
+            if not self.inspector.isHidden() and self.inspector.task_id is not None:
+                with self.performance.measure("ui_refresh.inspector", context=context):
+                    self.inspector.load_task(self.inspector.task_id)
 
     def open_inspector(self, task_id: object) -> None:
         self.inspector.load_task(task_id)
-        try: self.inspector.saved.disconnect(self.refresh_execution_views)
-        except RuntimeError: pass
-        self.inspector.saved.connect(self.refresh_project_views)
 
     def focus_active_search(self) -> None:
         page = self.pages.get(self.active_destination)

@@ -36,6 +36,12 @@ ALLOWED_EVENTS = frozenset({
     "task_save.reload", "task_save.project_update", "task_save.activity_write",
     "ui_refresh.my_tasks", "ui_refresh.project", "ui_refresh.dashboard",
     "ui_refresh.calendar", "ui_refresh.gantt",
+    "inspector_save.total", "inspector_save.emit_refresh",
+    "ui_refresh.project_views_total", "ui_refresh.execution_views_total",
+    "ui_refresh.pinned_projects", "ui_refresh.inspector",
+    "inspector_load.total", "inspector_load.task_detail", "inspector_load.owners",
+    "inspector_load.tags", "inspector_load.dependencies",
+    "inspector_load.widget_population", "ui_event_loop.resume_after_save",
 })
 _COUNT_FIELDS = frozenset({"dependency_count", "child_count"})
 _BOOLEAN_FIELDS = frozenset({"has_project", "has_parent", "is_completed"})
@@ -104,11 +110,44 @@ class PerformanceDiagnostics:
         if not self.enabled or event not in ALLOWED_EVENTS:
             yield
             return
-        start = self._clock()
+        try:
+            start = self._clock()
+        except Exception:
+            logger.warning("Performance diagnostics clock could not be read", exc_info=True)
+            yield
+            return
         try:
             yield
         finally:
-            self.record(event, max(0.0, (self._clock() - start) * 1000), context=context)
+            try:
+                duration_ms = max(0.0, (self._clock() - start) * 1000)
+            except Exception:
+                logger.warning("Performance diagnostics clock could not be read", exc_info=True)
+            else:
+                self.record(event, duration_ms, context=context)
+
+    def timer_start(self) -> float | None:
+        """Return a diagnostics clock reading, or ``None`` when unavailable/off."""
+        if not self.enabled:
+            return None
+        try:
+            return self._clock()
+        except Exception:
+            logger.warning("Performance diagnostics clock could not be read", exc_info=True)
+            return None
+
+    def record_since(
+        self, event: str, start: float | None, *, context: Mapping[str, object] | None = None,
+    ) -> None:
+        """Record elapsed time from ``start`` without allowing clock failure to escape."""
+        if start is None:
+            return
+        try:
+            duration_ms = max(0.0, (self._clock() - start) * 1000)
+        except Exception:
+            logger.warning("Performance diagnostics clock could not be read", exc_info=True)
+            return
+        self.record(event, duration_ms, context=context)
 
     def record(self, event: str, duration_ms: float, *, context: Mapping[str, object] | None = None) -> None:
         if not self.enabled or event not in ALLOWED_EVENTS:

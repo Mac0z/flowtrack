@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from uuid import UUID
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
     QMessageBox, QPushButton, QSpinBox, QVBoxLayout, QWidget,
@@ -209,12 +209,20 @@ class TaskInspector(QWidget):
                       if self._stable_id(combo.itemData(i)) == wanted), -1)
         combo.setCurrentIndex(index)
 
+    @property
+    def diagnostics_context(self) -> dict[str, object]:
+        """Return a detached, anonymous context for surrounding UI measurements."""
+        return self._diagnostics_context.copy()
+
     def load_task(self, task_id: UUID) -> None:
-        detail = self.queries.task_detail(task_id)
-        if detail is None:
-            return
-        self.task_id = task_id
-        self._diagnostics_context = {
+        context: dict[str, object] = {"save_type": "update"}
+        with self.performance.measure("inspector_load.total", context=context):
+            with self.performance.measure("inspector_load.task_detail", context=context):
+                detail = self.queries.task_detail(task_id)
+            if detail is None:
+                return
+            self.task_id = task_id
+            context.update({
             "save_type": "update",
             "has_project": detail["project_id"] is not None,
             "has_parent": detail.get("parent_task_id") is not None,
@@ -222,33 +230,38 @@ class TaskInspector(QWidget):
             "dependency_count": len(detail["dependencies"]),  # type: ignore[arg-type]
             "status": TaskStatus(detail["status"]).value,
             "is_completed": TaskStatus(detail["status"]) is TaskStatus.COMPLETE,
-        }
-        self.title.setText(str(detail["title"]))
-        self.description.setPlainText(str(detail["description"]))
-        self._select_data(self.status, detail["status"])
-        self._select_data(self.priority, detail["priority"])
-        self.owner.clear()
-        self.owner.addItem("Unassigned", None)
-        current_owner = self._stable_id(detail["owner_id"])
-        for owner_id, name, active in self.queries.owners():
-            if active or self._stable_id(owner_id) == current_owner:
-                label = name if active else f"{name} (inactive)"
-                self.owner.addItem(label, str(owner_id))
-        self._select_data(self.owner, detail["owner_id"])
-        self.start.set_date_or_none(detail["start_date"])  # type: ignore[arg-type]
-        self.due.set_date_or_none(detail["due_date"])  # type: ignore[arg-type]
-        self._automatic_progress = round(float(detail["automatic_progress"]))
-        self._manual_progress = int(detail["manual_progress"])
-        self._loaded_progress_mode = ProgressMode(detail["progress_mode"])
-        self._select_data(self.progress_mode, detail["progress_mode"])
-        self.progress.setValue(round(float(detail["progress"])))
-        self.progress.setReadOnly(self._loaded_progress_mode is ProgressMode.AUTOMATIC)
-        self._all_tags = {str(tag_id): name for tag_id, name in self.queries.tags()}
-        self.assigned_tag_ids = {str(tag_id) for tag_id, _ in detail["tags"]}  # type: ignore[union-attr]
-        self._refresh_tags()
-        self.children.setText("\n".join(name for _, name, _ in detail["children"]) or "None")  # type: ignore[union-attr]
-        self._refresh_dependencies()
-        self.show()
+            })
+            self._diagnostics_context = context.copy()
+            with self.performance.measure("inspector_load.owners", context=context):
+                self.owner.clear()
+                self.owner.addItem("Unassigned", None)
+                current_owner = self._stable_id(detail["owner_id"])
+                for owner_id, name, active in self.queries.owners():
+                    if active or self._stable_id(owner_id) == current_owner:
+                        label = name if active else f"{name} (inactive)"
+                        self.owner.addItem(label, str(owner_id))
+                self._select_data(self.owner, detail["owner_id"])
+            with self.performance.measure("inspector_load.tags", context=context):
+                self._all_tags = {str(tag_id): name for tag_id, name in self.queries.tags()}
+                self.assigned_tag_ids = {str(tag_id) for tag_id, _ in detail["tags"]}  # type: ignore[union-attr]
+                self._refresh_tags()
+            with self.performance.measure("inspector_load.dependencies", context=context):
+                self._refresh_dependencies()
+            with self.performance.measure("inspector_load.widget_population", context=context):
+                self.title.setText(str(detail["title"]))
+                self.description.setPlainText(str(detail["description"]))
+                self._select_data(self.status, detail["status"])
+                self._select_data(self.priority, detail["priority"])
+                self.start.set_date_or_none(detail["start_date"])  # type: ignore[arg-type]
+                self.due.set_date_or_none(detail["due_date"])  # type: ignore[arg-type]
+                self._automatic_progress = round(float(detail["automatic_progress"]))
+                self._manual_progress = int(detail["manual_progress"])
+                self._loaded_progress_mode = ProgressMode(detail["progress_mode"])
+                self._select_data(self.progress_mode, detail["progress_mode"])
+                self.progress.setValue(round(float(detail["progress"])))
+                self.progress.setReadOnly(self._loaded_progress_mode is ProgressMode.AUTOMATIC)
+                self.children.setText("\n".join(name for _, name, _ in detail["children"]) or "None")  # type: ignore[union-attr]
+                self.show()
 
     @staticmethod
     def _clear_layout(layout: QVBoxLayout) -> None:
@@ -329,31 +342,54 @@ class TaskInspector(QWidget):
     def save(self) -> None:
         if self.task_id is None:
             return
+        save_started = self.performance.timer_start()
+        context = self._diagnostics_context.copy()
+        current_status = TaskStatus(self.status.currentData())
+        context.update({"status": current_status.value,
+                        "is_completed": current_status is TaskStatus.COMPLETE})
         try:
-            owner_data = self.owner.currentData()
-            self.service.update_task(
-                self.task_id, diagnostics_context=self._diagnostics_context,
-                title=self.title.text(), description=self.description.toPlainText(),
-                status=TaskStatus(self.status.currentData()),
-                priority=TaskPriority(self.priority.currentData()),
-                owner_id=UUID(owner_data) if owner_data else None,
-                start_date=self.start.date_or_none(), due_date=self.due.date_or_none(),
-                progress_mode=ProgressMode(self.progress_mode.currentData()),
-                manual_progress=(self.progress.value()
-                                 if ProgressMode(self.progress_mode.currentData()) is ProgressMode.MANUAL
-                                 else self._manual_progress),
-            )
-            self.service.set_tags(
-                self.task_id,
-                [UUID(tag_id) for tag_id in sorted(self.assigned_tag_ids)],
-            )
-        except TaskValidationError as error:
-            self.error.setText(str(error))
-            return
-        self.error.clear()
-        self.saved.emit()
-        with self.performance.measure("task_save.reload", context={"save_type": "update"}):
-            self.load_task(self.task_id)
+            with self.performance.measure("inspector_save.total", context=context):
+                try:
+                    owner_data = self.owner.currentData()
+                    self.service.update_task(
+                        self.task_id, diagnostics_context=context,
+                        title=self.title.text(), description=self.description.toPlainText(),
+                        status=current_status,
+                        priority=TaskPriority(self.priority.currentData()),
+                        owner_id=UUID(owner_data) if owner_data else None,
+                        start_date=self.start.date_or_none(), due_date=self.due.date_or_none(),
+                        progress_mode=ProgressMode(self.progress_mode.currentData()),
+                        manual_progress=(self.progress.value()
+                                         if ProgressMode(self.progress_mode.currentData()) is ProgressMode.MANUAL
+                                         else self._manual_progress),
+                    )
+                    self.service.set_tags(
+                        self.task_id,
+                        [UUID(tag_id) for tag_id in sorted(self.assigned_tag_ids)],
+                    )
+                except TaskValidationError as error:
+                    self.error.setText(str(error))
+                    return
+                self.error.clear()
+                with self.performance.measure("inspector_save.emit_refresh", context=context):
+                    self.saved.emit()
+                with self.performance.measure("task_save.reload", context=context):
+                    self.load_task(self.task_id)
+        finally:
+            if save_started is not None:
+                # Capture no QObject in the callback: it remains safe if the inspector
+                # closes, its task disappears, or application teardown has begun.
+                performance = self.performance
+                try:
+                    QTimer.singleShot(
+                        0,
+                        lambda: performance.record_since(
+                            "ui_event_loop.resume_after_save", save_started, context=context,
+                        ),
+                    )
+                except RuntimeError:
+                    # Qt may already be tearing down; diagnostics must not affect save.
+                    pass
 
     def _progress_mode_changed(self) -> None:
         data = self.progress_mode.currentData()
